@@ -23,6 +23,7 @@ interface DashboardViewProps {
   tareas: Tarea[];
   onNavigateToScreen: (screen: any, filterState?: any) => void;
   onOpenMigrationModal: () => void;
+  isSuperAdmin?: boolean;
 }
 
 export const DashboardView: React.FC<DashboardViewProps> = ({
@@ -33,6 +34,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   tareas,
   onNavigateToScreen,
   onOpenMigrationModal,
+  isSuperAdmin = false,
 }) => {
   // Filter by selected building if any
   const filteredRecorridos = selectedEdificioId
@@ -73,14 +75,21 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
 
         <div className="flex items-center gap-3 flex-wrap">
-          <button
-            type="button"
-            onClick={onOpenMigrationModal}
-            className="px-3 py-1.5 rounded-lg bg-white border border-[#d3e4fe] text-[#0051d5] text-xs font-bold hover:bg-[#eff4ff] transition-all flex items-center gap-1.5 shadow-sm"
-          >
-            <Database className="w-4 h-4 text-[#069669]" />
-            Migración a Supabase (SQL)
-          </button>
+          {/* BOTÓN MIGRACIÓN / REPARACIÓN: SOLO VISIBLE EN PERFIL SUPERADMIN */}
+          {isSuperAdmin && (
+            <button
+              type="button"
+              onClick={onOpenMigrationModal}
+              className="px-3 py-1.5 rounded-lg bg-white border border-[#d3e4fe] text-[#0051d5] text-xs font-bold hover:bg-[#eff4ff] transition-all flex items-center gap-1.5 shadow-sm cursor-pointer"
+              title="Herramienta de diagnóstico de BD (Exclusivo SuperAdmin)"
+            >
+              <Database className="w-4 h-4 text-[#069669]" />
+              <span>Migración a Supabase (SQL)</span>
+              <span className="text-[9px] px-1 py-0.2 bg-[#eff4ff] text-[#0051d5] border border-[#d3e4fe] rounded font-semibold font-mono">
+                SuperAdmin
+              </span>
+            </button>
+          )}
 
           {/* Building Selector */}
           <div className="flex items-center gap-2 bg-white border border-[#e5eeff] rounded-lg px-3 py-1.5 shadow-sm">

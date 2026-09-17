@@ -57,6 +57,10 @@ export default function App() {
 
   const [edificios, setEdificios] = useState<Edificio[]>(initialEdificios);
   const [usuarios, setUsuarios] = useState<Usuario[]>(initialUsuarios);
+  // Current active user (defaults to SuperAdmin EAZY USR-000004)
+  const [currentUserId, setCurrentUserId] = useState<string>('USR-000004');
+  const currentUser = usuarios.find((u) => u.id_usuario === currentUserId) || usuarios[0];
+  const isSuperAdmin = currentUser?.rol === 'SuperAdmin';
   const [recorridos, setRecorridos] = useState<Recorrido[]>(initialRecorridos);
   const [tareas, setTareas] = useState<Tarea[]>(initialTareas);
   const [automatizaciones, setAutomatizaciones] = useState<TareaAutomatica[]>(initialAutomatizaciones);
@@ -305,11 +309,30 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-[#f8f9ff] text-[#0b1c30]">
-      {/* Fixed Header */}
+      {/* Fixed Header with Role and Profile Switcher */}
       <Header
-        userName={auditData.supervisorName}
-        userRole={auditData.supervisorRole}
-        onOpenMigrationModal={() => setIsMigrationModalOpen(true)}
+        currentUser={currentUser}
+        usuarios={usuarios}
+        onSelectUser={(u) => {
+          setCurrentUserId(u.id_usuario);
+          // If switching away from SuperAdmin while on 'usuarios' screen, redirect to dashboard
+          if (u.rol !== 'SuperAdmin' && currentScreen === 'usuarios') {
+            setCurrentScreen('dashboard');
+          }
+          // If switching to Mantenimiento while on recorridos/reportes, redirect to tareas
+          if (u.rol === 'Mantenimiento' && (currentScreen === 'recorridos' || currentScreen === 'reportes' || currentScreen === 'recorrido_cierre' || currentScreen === 'recorrido_detalle')) {
+            setCurrentScreen('tareas');
+          }
+          showToast(`Perfil activo: ${u.nombre} (${u.rol})`);
+        }}
+        onOpenMigrationModal={() => {
+          if (isSuperAdmin) {
+            setIsMigrationModalOpen(true);
+          } else {
+            showToast('Acceso restringido: Solo el perfil SuperAdmin puede acceder al diagnóstico y reparación de BD.');
+          }
+        }}
+        isSuperAdmin={isSuperAdmin}
       />
 
       {/* Fixed Sidebar */}
@@ -317,7 +340,13 @@ export default function App() {
         currentScreen={currentScreen}
         onNavigate={(screen) => setCurrentScreen(screen)}
         pendingTasksCount={pendingTasksCount}
-        onOpenMigrationModal={() => setIsMigrationModalOpen(true)}
+        onOpenMigrationModal={() => {
+          if (isSuperAdmin) {
+            setIsMigrationModalOpen(true);
+          }
+        }}
+        isSuperAdmin={isSuperAdmin}
+        userRole={currentUser.rol}
       />
 
       {/* Main Content Area */}
@@ -344,7 +373,12 @@ export default function App() {
                   setCurrentScreen('recorrido_detalle');
                 }
               }}
-              onOpenMigrationModal={() => setIsMigrationModalOpen(true)}
+              onOpenMigrationModal={() => {
+                if (isSuperAdmin) {
+                  setIsMigrationModalOpen(true);
+                }
+              }}
+              isSuperAdmin={isSuperAdmin}
             />
           )}
 
@@ -644,8 +678,8 @@ export default function App() {
             />
           )}
 
-          {/* 9. Usuarios View */}
-          {currentScreen === 'usuarios' && (
+          {/* 9. Usuarios View (Exclusivo SuperAdmin) */}
+          {currentScreen === 'usuarios' && isSuperAdmin && (
             <UsuariosView
               usuarios={usuarios}
               edificios={edificios}
@@ -656,10 +690,11 @@ export default function App() {
         </main>
       </div>
 
-      {/* Supabase Migration Modal */}
+      {/* Supabase Migration Modal - Restricted to SuperAdmin */}
       <SupabaseMigrationModal
         isOpen={isMigrationModalOpen}
         onClose={() => setIsMigrationModalOpen(false)}
+        isSuperAdmin={isSuperAdmin}
       />
 
       {/* Signature Modal */}

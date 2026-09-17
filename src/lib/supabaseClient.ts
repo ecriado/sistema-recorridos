@@ -38,18 +38,214 @@ export function configureSupabase(url: string, anonKey: string): { success: bool
   }
 }
 
-export async function testSupabaseConnection(): Promise<{ ok: boolean; message: string }> {
+export interface TableDiagnosticResult {
+  table: string;
+  status: 'ok' | 'missing_table' | 'column_mismatch' | 'error';
+  message: string;
+  expectedColumns: string[];
+  missingColumns?: string[];
+}
+
+export async function testSupabaseConnection(): Promise<{ ok: boolean; message: string; details?: string }> {
   if (!client) {
     return { ok: false, message: 'No se han ingresado credenciales de Supabase (URL y Anon Key).' };
   }
   try {
-    const { error } = await client.from('edificios').select('id_edificio').limit(1);
+    // Select * with limit 1 so it does not fail whether columns are named id or id_edificio
+    const { data, error } = await client.from('edificios').select('*').limit(1);
     if (error) {
-      // Table might not exist yet if migration hasn't run
+      if (error.message.includes('relation') && error.message.includes('does not exist')) {
+        return { 
+          ok: true, 
+          message: `Conectado a Supabase, pero la tabla 'edificios' aún no existe en el esquema.`,
+          details: 'Ejecuta el script de la pestaña "Script Reparador" o "Reinstalación Limpia" en el SQL Editor de Supabase.'
+        };
+      }
       return { ok: true, message: `Conexión con Supabase verificada (aviso tabla: ${error.message}).` };
     }
-    return { ok: true, message: 'Conexión con PostgreSQL y Supabase exitosa.' };
+    
+    // Check if table contains records and whether id or id_edificio exists
+    if (data && data.length > 0) {
+      const firstRow = data[0];
+      const hasIdCol = 'id_edificio' in firstRow || 'id' in firstRow;
+      if (!hasIdCol) {
+        return {
+          ok: true,
+          message: 'Conectado a Supabase. Se recomienda ejecutar el script de reparación para estandarizar las columnas.',
+          details: 'La tabla edificios no contiene la columna id ni id_edificio.'
+        };
+      }
+    }
+    return { ok: true, message: 'Conexión con PostgreSQL y Supabase exitosa. Tabla de edificios validada y en línea.' };
   } catch (e: any) {
     return { ok: false, message: e?.message || 'Fallo de conexión a Supabase.' };
   }
 }
+
+export async function diagnoseAllTables(): Promise<TableDiagnosticResult[]> {
+  if (!client) return [];
+
+  const tablesToTest: { table: string; columns: string[] }[] = [
+    { table: 'edificios', columns: ['id_edificio', 'nombre', 'direccion', 'activo'] },
+    { table: 'usuarios', columns: ['id_usuario', 'nombre', 'email', 'rol', 'usuario_login'] },
+    { table: 'recorridos', columns: ['id_recorrido', 'nombre', 'id_edificio', 'fecha_programada', 'inspector_email', 'estado'] },
+    { table: 'checkpoints', columns: ['id_checkpoint', 'id_edificio', 'id_recorrido', 'ubicacion', 'orden'] },
+    { table: 'hallazgos', columns: ['id_hallazgo', 'id_recorrido', 'id_checkpoint', 'estatus'] },
+    { table: 'tareas', columns: ['id_tarea', 'id_edificio', 'titulo_tarea', 'prioridad', 'estado_tarea'] },
+    { table: 'tareas_automaticas', columns: ['id_automatizacion', 'id_edificio', 'titulo', 'frecuencia', 'activo'] },
+  ];
+
+  const results: TableDiagnosticResult[] = [];
+
+  for (const item of tablesToTest) {
+    try {
+      // Test full expected columns
+      const { error: fullError } = await client.from(item.table).select(item.columns.join(',')).limit(1);
+      if (!fullError) {
+        results.push({
+          table: item.table,
+          status: 'ok',
+          message: 'Estructura válida y columnas reconocidas.',
+          expectedColumns: item.columns,
+        });
+        continue;
+      }
+
+      // Check if table even exists
+      const { error: anyError } = await client.from(item.table).select('*').limit(1);
+      if (anyError && anyError.message.includes('relation') && anyError.message.includes('does not exist')) {
+        results.push({
+          table: item.table,
+          status: 'missing_table',
+          message: `La tabla '${item.table}' aún no ha sido creada en la base de datos.`,
+          expectedColumns: item.columns,
+        });
+        continue;
+      }
+
+      // If table exists but specific columns failed, test each column
+      const missing: string[] = [];
+      let usesIdAlias = false;
+      for (const col of item.columns) {
+        const { error: colError } = await client.from(item.table).select(col).limit(1);
+        if (colError && colError.message.includes('does not exist')) {
+          // If the primary key is named 'id' instead of 'id_edificio', check if 'id' exists
+          if (col.startsWith('id_')) {
+            const { error: idError } = await client.from(item.table).select('id').limit(1);
+            if (!idError) {
+              usesIdAlias = true;
+              continue; // Columna 'id' existe y la app la mapea automáticamente
+            }
+          }
+          missing.push(col);
+        }
+      }
+
+      if (missing.length === 0) {
+        results.push({
+          table: item.table,
+          status: 'ok',
+          message: usesIdAlias 
+            ? 'Compatible (utiliza columna "id" nativa mapeada automáticamente).' 
+            : 'Estructura válida y columnas reconocidas.',
+          expectedColumns: item.columns,
+        });
+        continue;
+      }
+
+      results.push({
+        table: item.table,
+        status: missing.length > 0 ? 'column_mismatch' : 'error',
+        message: missing.length > 0 
+          ? `Columnas no encontradas: ${missing.join(', ')}` 
+          : fullError.message,
+        expectedColumns: item.columns,
+        missingColumns: missing,
+      });
+    } catch (err: any) {
+      results.push({
+        table: item.table,
+        status: 'error',
+        message: err?.message || 'Error desconocido al consultar tabla.',
+        expectedColumns: item.columns,
+      });
+    }
+  }
+
+  return results;
+}
+
+// Data loaders with resilient column mapping
+export async function loadEdificiosFromSupabase(): Promise<{ data: any[] | null; error: string | null }> {
+  if (!client) return { data: null, error: 'No conectado' };
+  try {
+    const { data, error } = await client.from('edificios').select('*');
+    if (error) return { data: null, error: error.message };
+    if (!data) return { data: [], error: null };
+    
+    // Normalize id vs id_edificio
+    const mapped = data.map((row: any) => ({
+      id_edificio: row.id_edificio || row.id || `EDI-${Math.floor(Math.random()*10000)}`,
+      nombre: row.nombre || 'Edificio sin nombre',
+      direccion: row.direccion || 'Sin dirección',
+      activo: row.activo !== false,
+      administrador_actual: row.administrador_actual || 'Administrador asignado',
+      id_administrador_actual: row.id_administrador_actual || row.id_administrador || '',
+    }));
+    return { data: mapped, error: null };
+  } catch (e: any) {
+    return { data: null, error: e?.message || 'Error desconocido' };
+  }
+}
+
+export async function loadUsuariosFromSupabase(): Promise<{ data: any[] | null; error: string | null }> {
+  if (!client) return { data: null, error: 'No conectado' };
+  try {
+    const { data, error } = await client.from('usuarios').select('*');
+    if (error) return { data: null, error: error.message };
+    if (!data) return { data: [], error: null };
+
+    const mapped = data.map((row: any) => ({
+      id_usuario: row.id_usuario || row.id || `USR-${Math.floor(Math.random()*10000)}`,
+      nombre: row.nombre || 'Usuario',
+      email: row.email || '',
+      rol: row.rol || 'Administrador',
+      usuario_login: row.usuario_login || row.email?.split('@')[0] || 'usuario',
+      activo: row.activo !== false,
+      edificios: row.edificios || [],
+    }));
+    return { data: mapped, error: null };
+  } catch (e: any) {
+    return { data: null, error: e?.message || 'Error desconocido' };
+  }
+}
+
+export async function loadRecorridosFromSupabase(): Promise<{ data: any[] | null; error: string | null }> {
+  if (!client) return { data: null, error: 'No conectado' };
+  try {
+    const { data, error } = await client.from('recorridos').select('*');
+    if (error) return { data: null, error: error.message };
+    if (!data) return { data: [], error: null };
+
+    const mapped = data.map((row: any) => ({
+      id_recorrido: row.id_recorrido || row.id || `REC-${Math.floor(Math.random()*10000)}`,
+      nombre: row.nombre || 'Recorrido',
+      id_edificio: row.id_edificio || '',
+      edificio_nombre: row.edificio_nombre || 'Edificio Corporativo',
+      fecha_programada: row.fecha_programada || new Date().toISOString(),
+      fecha_cierre_programada: row.fecha_cierre_programada,
+      cierre_automatico: row.cierre_automatico !== false,
+      inspector_email: row.inspector_email || 'inspector@eazyops.gt',
+      inspector_nombre: row.inspector_nombre || 'Inspector',
+      estado: row.estado || 'Programado',
+      observaciones: row.observaciones || '',
+      creado_por: row.creado_por || 'Sistema',
+      checkpoints_count: row.checkpoints_count || 8,
+      hallazgos_count: row.hallazgos_count || 0,
+    }));
+    return { data: mapped, error: null };
+  } catch (e: any) {
+    return { data: null, error: e?.message || 'Error desconocido' };
+  }
+}
+

@@ -7,24 +7,29 @@ import {
   BarChart3, 
   Building,
   Users,
-  Database
+  Database,
+  ShieldCheck
 } from 'lucide-react';
-import { NavScreen } from '../types';
+import { NavScreen, UserRole } from '../types';
 
 interface SidebarProps {
   currentScreen: NavScreen;
   onNavigate: (screen: NavScreen) => void;
   pendingTasksCount?: number;
   onOpenMigrationModal?: () => void;
+  isSuperAdmin?: boolean;
+  userRole?: UserRole;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ 
   currentScreen, 
   onNavigate,
   pendingTasksCount = 1,
-  onOpenMigrationModal
+  onOpenMigrationModal,
+  isSuperAdmin = false,
+  userRole = 'Administrador'
 }) => {
-  const navItems: { id: NavScreen; label: string; icon: React.ReactNode; badge?: string }[] = [
+  const allNavItems: { id: NavScreen; label: string; icon: React.ReactNode; badge?: string }[] = [
     { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard className="w-5 h-5" /> },
     { id: 'tareas', label: 'Tareas', icon: <CheckSquare className="w-5 h-5" />, badge: pendingTasksCount > 0 ? `${pendingTasksCount}` : undefined },
     { id: 'recorridos', label: 'Recorridos', icon: <ClipboardCheck className="w-5 h-5" /> },
@@ -33,6 +38,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'edificios', label: 'Edificios', icon: <Building className="w-5 h-5" /> },
     { id: 'usuarios', label: 'Usuarios', icon: <Users className="w-5 h-5" /> },
   ];
+
+  // Role filtering based on Google Apps Script specs:
+  const navItems = allNavItems.filter((item) => {
+    // 1. Usuarios is ONLY accessible to SuperAdmin
+    if (item.id === 'usuarios') {
+      return isSuperAdmin;
+    }
+    // 2. Mantenimiento does not access recorridos, reportes or edificios
+    if (userRole === 'Mantenimiento') {
+      if (item.id === 'recorridos' || item.id === 'reportes' || item.id === 'edificios') {
+        return false;
+      }
+    }
+    return true;
+  });
 
   return (
     <aside className="fixed left-0 top-16 bottom-0 w-64 bg-[#eff4ff]/60 border-r border-[#e5eeff] z-30 flex flex-col justify-between py-4 shadow-[0_1px_8px_rgba(0,0,0,0.02)] overflow-y-auto">
@@ -51,7 +71,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 key={item.id}
                 onClick={() => onNavigate(item.id)}
                 type="button"
-                className={`flex items-center justify-between px-3.5 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                className={`flex items-center justify-between px-3.5 py-2.5 rounded-lg text-sm font-medium transition-colors cursor-pointer ${
                   isActive
                     ? 'bg-[#0051d5] text-white shadow-sm'
                     : 'text-[#45474c] hover:bg-[#e5eeff] hover:text-[#0b1c30]'
@@ -80,16 +100,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
       {/* Supabase Migration & Sede Central Box */}
       <div className="px-4 flex flex-col gap-3">
-        {onOpenMigrationModal && (
+        {/* BOTÓN DIAGNOSTICAR BD: EXCLUSIVO DEL PERFIL SUPERADMIN */}
+        {isSuperAdmin && onOpenMigrationModal && (
           <button
             type="button"
             onClick={onOpenMigrationModal}
-            className="w-full p-3 rounded-xl bg-gradient-to-br from-[#111c2e] to-[#1e293b] text-white flex items-center gap-2.5 text-xs font-bold shadow hover:from-[#1b2a42] hover:to-[#27354a] transition-all border border-[#213145]"
+            className="w-full p-3 rounded-xl bg-gradient-to-br from-[#111c2e] to-[#1e293b] text-white flex items-center gap-2.5 text-xs font-bold shadow hover:from-[#1b2a42] hover:to-[#27354a] transition-all border border-[#213145] cursor-pointer group"
+            title="Herramienta exclusiva de SuperAdmin para diagnóstico y reparación en Supabase"
           >
-            <Database className="w-4 h-4 text-[#85f8c4]" />
+            <ShieldCheck className="w-4 h-4 text-[#85f8c4] group-hover:scale-110 transition-transform" />
             <div className="flex flex-col text-left">
-              <span className="text-[11px] font-bold text-white">Migración Supabase</span>
-              <span className="text-[10px] text-[#bcc7df] font-normal">Esquema SQL y Storage</span>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[11px] font-bold text-white">Diagnosticar BD</span>
+                <span className="text-[9px] px-1 py-0.2 bg-[#0051d5] text-white rounded font-mono font-medium">SuperAdmin</span>
+              </div>
+              <span className="text-[10px] text-[#bcc7df] font-normal">Reparar columnas Supabase</span>
             </div>
           </button>
         )}
