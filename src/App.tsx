@@ -1,0 +1,715 @@
+import React, { useState } from 'react';
+import { 
+  ArrowLeft, 
+  Cloud, 
+  Download, 
+  CheckCircle2, 
+  Database, 
+  Info, 
+  ListFilter, 
+  X, 
+  RotateCcw,
+  Sparkles
+} from 'lucide-react';
+import { Header } from './components/Header';
+import { Sidebar } from './components/Sidebar';
+import { MetricCards } from './components/MetricCards';
+import { CheckpointCard } from './components/CheckpointCard';
+import { SupervisorDictamen } from './components/SupervisorDictamen';
+import { SupabaseCodePreview } from './components/SupabaseCodePreview';
+import { SignatureModal } from './components/SignatureModal';
+import { LightboxModal } from './components/LightboxModal';
+import { JsonExportModal } from './components/JsonExportModal';
+import { SupabaseMigrationModal } from './components/SupabaseMigrationModal';
+
+import { DashboardView } from './components/views/DashboardView';
+import { RecorridosView } from './components/views/RecorridosView';
+import { RecorridoDetalleView } from './components/views/RecorridoDetalleView';
+import { TareasView } from './components/views/TareasView';
+import { AutomatizacionesView } from './components/views/AutomatizacionesView';
+import { ReportesView } from './components/views/ReportesView';
+import { EdificiosView } from './components/views/EdificiosView';
+import { UsuariosView } from './components/views/UsuariosView';
+
+import { initialAuditData } from './data/auditData';
+import { 
+  initialEdificios, 
+  initialUsuarios, 
+  initialRecorridos, 
+  initialTareas, 
+  initialAutomatizaciones 
+} from './data/initialData';
+import { 
+  NavScreen, 
+  DictamenFormState, 
+  Recorrido, 
+  Tarea, 
+  TareaAutomatica, 
+  Edificio, 
+  Usuario 
+} from './types';
+
+export default function App() {
+  // Main Navigation & Entity Stores
+  const [currentScreen, setCurrentScreen] = useState<NavScreen>('recorrido_cierre');
+  const [selectedEdificioId, setSelectedEdificioId] = useState<string>('');
+  const [activeRecorrido, setActiveRecorrido] = useState<Recorrido>(initialRecorridos[0]);
+
+  const [edificios, setEdificios] = useState<Edificio[]>(initialEdificios);
+  const [usuarios, setUsuarios] = useState<Usuario[]>(initialUsuarios);
+  const [recorridos, setRecorridos] = useState<Recorrido[]>(initialRecorridos);
+  const [tareas, setTareas] = useState<Tarea[]>(initialTareas);
+  const [automatizaciones, setAutomatizaciones] = useState<TareaAutomatica[]>(initialAutomatizaciones);
+
+  // Initial Previsualización y Cierre de Recorrido audit data
+  const [auditData, setAuditData] = useState(initialAuditData);
+  const [formState, setFormState] = useState<DictamenFormState>({
+    rating: 4.0,
+    tipoCierre: 'conforme_obs',
+    dictamenTexto:
+      'El recorrido en Torre Roble concluye con 75% de cumplimiento estricto. Se verificó el reemplazo del extintor en Piso 7. Se aprueba pase provisional condicionado a la sustitución de la batería de emergencia en Piso 4 antes de 48 horas laborales.',
+    notifyPdfInSupabase: true,
+    generateWebhook: true,
+  });
+
+  // Modals
+  const [isMigrationModalOpen, setIsMigrationModalOpen] = useState(false);
+  const [isSignatureModalOpen, setIsSignatureModalOpen] = useState(false);
+  const [isJsonModalOpen, setIsJsonModalOpen] = useState(false);
+  const [activeLightboxImage, setActiveLightboxImage] = useState<{
+    url: string;
+    title: string;
+    filename: string;
+    metadata?: string;
+    size?: string;
+  } | null>(null);
+
+  // Sealed status
+  const [isSealed, setIsSealed] = useState(false);
+  const [sealedAt, setSealedAt] = useState<string | undefined>(undefined);
+  const [signatureData, setSignatureData] = useState<string | undefined>(undefined);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => {
+      setToastMessage(null);
+    }, 6000);
+  };
+
+  const handleFormChange = (updates: Partial<DictamenFormState>) => {
+    setFormState((prev) => ({ ...prev, ...updates }));
+  };
+
+  const handleConfirmSeal = async (sigData: string) => {
+    // Simulate Supabase PostgreSQL latency
+    await new Promise((resolve) => setTimeout(resolve, 800));
+
+    const nowIso = new Date().toISOString();
+    setIsSealed(true);
+    setSealedAt(nowIso);
+    setSignatureData(sigData);
+    setAuditData((prev) => ({
+      ...prev,
+      status: 'finalizado',
+      statusLabel: 'Auditoría Finalizada y Sellada',
+    }));
+
+    // Also update in recorridos list
+    setRecorridos((prev) =>
+      prev.map((r) =>
+        r.id_recorrido === auditData.code || r.id_recorrido === 'REC-2024-089'
+          ? {
+              ...r,
+              estado: 'Completado',
+              comentario_cierre: formState.dictamenTexto,
+              calificacion_cierre: formState.rating,
+              resultado_cierre: 'Satisfactorio con Observaciones',
+            }
+          : r
+      )
+    );
+
+    showToast(`¡Auditoría ${auditData.code} Sellada con Éxito en Supabase!`);
+  };
+
+  const handleResetAudit = () => {
+    setIsSealed(false);
+    setSealedAt(undefined);
+    setSignatureData(undefined);
+    setAuditData(initialAuditData);
+  };
+
+  // Entity Handlers
+  const handleCreateRecorrido = (nuevo: Partial<Recorrido>) => {
+    const nextId = `REC-2024-0${recorridos.length + 90}`;
+    const item: Recorrido = {
+      id_recorrido: nextId,
+      nombre: nuevo.nombre || 'Nuevo Recorrido',
+      id_edificio: nuevo.id_edificio || edificios[0]?.id_edificio,
+      edificio_nombre: nuevo.edificio_nombre,
+      fecha_programada: nuevo.fecha_programada || new Date().toISOString(),
+      fecha_cierre_programada: nuevo.fecha_cierre_programada,
+      cierre_automatico: nuevo.cierre_automatico ?? true,
+      inspector_email: nuevo.inspector_email || 'carlos.mendez@eazyops.gt',
+      inspector_nombre: nuevo.inspector_nombre || 'Ing. Carlos Mendez',
+      estado: 'Programado',
+      observaciones: nuevo.observaciones,
+      creado_por: 'carlos.mendez@eazyops.gt',
+      checkpoints_count: 8,
+      hallazgos_count: 0,
+    };
+
+    setRecorridos([item, ...recorridos]);
+    showToast(`Recorrido ${nextId} registrado en Supabase.`);
+  };
+
+  const handleCreateTarea = (nueva: Partial<Tarea>) => {
+    const nextId = `TAR-000${tareas.length + 105}`;
+    const item: Tarea = {
+      id_tarea: nextId,
+      id_edificio: nueva.id_edificio || edificios[0]?.id_edificio,
+      edificio_nombre: nueva.edificio_nombre,
+      tipo_origen: nueva.tipo_origen || 'Manual',
+      asignado_a_email: nueva.asignado_a_email || '',
+      asignado_a_nombre: nueva.asignado_a_nombre || 'Sin nombre',
+      asignado_a_rol: nueva.asignado_a_rol || 'Técnico',
+      titulo_tarea: nueva.titulo_tarea || 'Nueva Tarea',
+      instrucciones: nueva.instrucciones || '',
+      prioridad: nueva.prioridad || 'Media',
+      fecha_creacion: new Date().toISOString().slice(0, 19).replace('T', ' '),
+      fecha_limite: nueva.fecha_limite,
+      creado_por: 'carlos.mendez@eazyops.gt',
+      estado_tarea: 'Pendiente',
+    };
+
+    setTareas([item, ...tareas]);
+    showToast(`Tarea ${nextId} creada correctamente en Supabase.`);
+  };
+
+  const handleUpdateTarea = (id: string, updates: Partial<Tarea>) => {
+    setTareas((prev) =>
+      prev.map((t) => (t.id_tarea === id ? { ...t, ...updates } : t))
+    );
+    showToast(`Tarea ${id} actualizada.`);
+  };
+
+  const handleCreateLoteMasivo = (lote: {
+    titulo: string;
+    prioridad: any;
+    fecha_limite: string;
+    instrucciones: string;
+    edificios: string[];
+  }) => {
+    const nuevasTareas: Tarea[] = lote.edificios.map((edId, index) => {
+      const bld = edificios.find((b) => b.id_edificio === edId);
+      const nextNum = tareas.length + 110 + index;
+      return {
+        id_tarea: `TAR-000${nextNum}`,
+        id_edificio: edId,
+        edificio_nombre: bld?.nombre,
+        tipo_origen: 'Masiva',
+        asignado_a_email: 'juan.mantenimiento@eazyops.gt',
+        asignado_a_nombre: 'Juan Mantenimiento',
+        titulo_tarea: lote.titulo,
+        instrucciones: lote.instrucciones,
+        prioridad: lote.prioridad,
+        fecha_creacion: new Date().toISOString().slice(0, 19).replace('T', ' '),
+        fecha_limite: lote.fecha_limite,
+        creado_por: 'carlos.mendez@eazyops.gt',
+        estado_tarea: 'Pendiente',
+      };
+    });
+
+    setTareas([...nuevasTareas, ...tareas]);
+    showToast(`Lote masivo de ${nuevasTareas.length} tareas creado en Supabase.`);
+  };
+
+  const handleCreateAutomatizacion = (nueva: Partial<TareaAutomatica>) => {
+    const nextId = `AUT-00000${automatizaciones.length + 3}`;
+    const item: TareaAutomatica = {
+      id_automatizacion: nextId,
+      creado_por_email: 'carlos.mendez@eazyops.gt',
+      asignado_a_email: nueva.asignado_a_email || '',
+      asignado_a_nombre: nueva.asignado_a_nombre || '',
+      id_edificio: nueva.id_edificio || edificios[0]?.id_edificio,
+      edificio_nombre: nueva.edificio_nombre,
+      titulo: nueva.titulo || 'Nueva Automatización',
+      instrucciones: nueva.instrucciones,
+      prioridad: nueva.prioridad || 'Media',
+      frecuencia: nueva.frecuencia || 'Semanal',
+      hora: nueva.hora || '08:00',
+      fecha_inicio: nueva.fecha_inicio || new Date().toISOString().slice(0, 10),
+      proxima_ejecucion: nueva.proxima_ejecucion,
+      activo: true,
+    };
+
+    setAutomatizaciones([item, ...automatizaciones]);
+    showToast(`Cron Job ${nextId} registrado en Supabase.`);
+  };
+
+  const handleToggleAutoActive = (id: string) => {
+    setAutomatizaciones((prev) =>
+      prev.map((a) => (a.id_automatizacion === id ? { ...a, activo: !a.activo } : a))
+    );
+  };
+
+  const handleDeleteAuto = (id: string) => {
+    setAutomatizaciones((prev) => prev.filter((a) => a.id_automatizacion !== id));
+    showToast('Automatización eliminada.');
+  };
+
+  const handleCreateEdificio = (nuevo: { nombre: string; direccion: string; id_administrador: string }) => {
+    const nextId = `EDI-00000${edificios.length + 1}`;
+    const admin = usuarios.find((u) => u.id_usuario === nuevo.id_administrador);
+    const item: Edificio = {
+      id_edificio: nextId,
+      nombre: nuevo.nombre,
+      direccion: nuevo.direccion,
+      activo: true,
+      id_administrador_actual: nuevo.id_administrador,
+      administrador_actual: admin?.nombre || 'Sin Administrador',
+    };
+    setEdificios([...edificios, item]);
+    showToast(`Edificio ${nuevo.nombre} creado en Supabase.`);
+  };
+
+  const handleToggleEdificio = (id: string) => {
+    setEdificios((prev) =>
+      prev.map((e) => (e.id_edificio === id ? { ...e, activo: !e.activo } : e))
+    );
+  };
+
+  const handleCreateUsuario = (nuevo: Partial<Usuario>) => {
+    const nextId = `USR-00000${usuarios.length + 1}`;
+    const item: Usuario = {
+      id_usuario: nextId,
+      nombre: nuevo.nombre || '',
+      email: nuevo.email || '',
+      rol: nuevo.rol || 'Administrador',
+      usuario_login: nuevo.usuario_login || '',
+      activo: true,
+      edificios: nuevo.edificios,
+    };
+    setUsuarios([...usuarios, item]);
+    showToast(`Usuario ${nuevo.nombre} registrado con éxito.`);
+  };
+
+  const handleToggleUsuario = (id: string) => {
+    setUsuarios((prev) =>
+      prev.map((u) => (u.id_usuario === id ? { ...u, activo: !u.activo } : u))
+    );
+  };
+
+  const pendingTasksCount = tareas.filter((t) => t.estado_tarea === 'Pendiente').length;
+
+  return (
+    <div className="min-h-screen bg-[#f8f9ff] text-[#0b1c30]">
+      {/* Fixed Header */}
+      <Header
+        userName={auditData.supervisorName}
+        userRole={auditData.supervisorRole}
+        onOpenMigrationModal={() => setIsMigrationModalOpen(true)}
+      />
+
+      {/* Fixed Sidebar */}
+      <Sidebar
+        currentScreen={currentScreen}
+        onNavigate={(screen) => setCurrentScreen(screen)}
+        pendingTasksCount={pendingTasksCount}
+        onOpenMigrationModal={() => setIsMigrationModalOpen(true)}
+      />
+
+      {/* Main Content Area */}
+      <div className="pl-0 md:pl-64 pt-16 min-h-screen flex flex-col">
+        <main className="flex-1 w-full px-4 sm:px-6 lg:px-8 py-6 max-w-7xl mx-auto">
+          {/* 1. Dashboard View */}
+          {currentScreen === 'dashboard' && (
+            <DashboardView
+              edificios={edificios}
+              selectedEdificioId={selectedEdificioId}
+              onSelectEdificio={setSelectedEdificioId}
+              recorridos={recorridos}
+              tareas={tareas}
+              onNavigateToScreen={(scr, filterState) => {
+                if (scr === 'recorridos') {
+                  setCurrentScreen('recorridos');
+                } else if (scr === 'tareas') {
+                  setCurrentScreen('tareas');
+                } else if (scr === 'recorrido_cierre') {
+                  setCurrentScreen('recorrido_cierre');
+                } else if (scr === 'recorrido_detalle') {
+                  const target = recorridos.find((r) => r.id_recorrido === filterState?.recorridoId) || recorridos[0];
+                  setActiveRecorrido(target);
+                  setCurrentScreen('recorrido_detalle');
+                }
+              }}
+              onOpenMigrationModal={() => setIsMigrationModalOpen(true)}
+            />
+          )}
+
+          {/* 2. Recorridos View */}
+          {currentScreen === 'recorridos' && (
+            <RecorridosView
+              recorridos={recorridos}
+              edificios={edificios}
+              usuarios={usuarios}
+              onOpenRecorrido={(rec) => {
+                setActiveRecorrido(rec);
+                if (rec.id_recorrido === 'REC-2024-089') {
+                  setCurrentScreen('recorrido_cierre');
+                } else {
+                  setCurrentScreen('recorrido_detalle');
+                }
+              }}
+              onCreateRecorrido={handleCreateRecorrido}
+            />
+          )}
+
+          {/* 3. Recorrido Detalle View */}
+          {currentScreen === 'recorrido_detalle' && (
+            <RecorridoDetalleView
+              recorrido={activeRecorrido}
+              onBack={() => setCurrentScreen('recorridos')}
+              onGoToClosure={() => setCurrentScreen('recorrido_cierre')}
+              onStartRecorrido={(id) => {
+                setRecorridos((prev) =>
+                  prev.map((r) => (r.id_recorrido === id ? { ...r, estado: 'En Proceso' } : r))
+                );
+                setActiveRecorrido((prev) => ({ ...prev, estado: 'En Proceso' }));
+                showToast(`Recorrido ${id} marcado En Proceso.`);
+              }}
+            />
+          )}
+
+          {/* 4. Previsualización y Cierre de Recorrido (Initial High-Fidelity Screen) */}
+          {currentScreen === 'recorrido_cierre' && (
+            <div className="flex flex-col w-full pb-16">
+              {/* Sub-header Breadcrumb / Navigation Bar */}
+              <div className="flex flex-wrap items-center justify-between gap-3 py-2 mb-4">
+                <div className="flex items-center gap-2.5 flex-wrap">
+                  <button
+                    onClick={() => setCurrentScreen('recorridos')}
+                    type="button"
+                    className="group flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#e5eeff] hover:bg-[#d3e4fe] transition-all text-[#0b1c30] text-xs font-semibold"
+                  >
+                    <ArrowLeft className="w-3.5 h-3.5 text-[#0051d5] group-hover:-translate-x-0.5 transition-transform" />
+                    <span>Volver a Recorridos</span>
+                  </button>
+
+                  <span className="text-[#c5c6cd]">/</span>
+                  <span className="text-xs uppercase tracking-wider text-[#64748b] font-medium">
+                    Auditorías Activas
+                  </span>
+                  <span className="text-[#c5c6cd]">/</span>
+                  <span className="text-xs font-bold text-[#0051d5] font-mono">
+                    {auditData.code}
+                  </span>
+                </div>
+
+                {/* Live Sync Pill */}
+                <div 
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => setIsMigrationModalOpen(true)}
+                  className="flex items-center gap-2 px-3 py-1 rounded-full bg-white border border-[#e5eeff] shadow-sm hover:border-[#bfdbfe] cursor-pointer transition-colors"
+                >
+                  <Cloud className="w-3.5 h-3.5 text-[#069669]" />
+                  <span className="text-xs text-[#0b1c30]">
+                    Supabase Edge Sync:{' '}
+                    <span className="text-[#069669] font-semibold">
+                      Realtime Activo
+                    </span>
+                  </span>
+                  <span className="relative flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#069669] opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-[#069669]"></span>
+                  </span>
+                </div>
+              </div>
+
+              {/* High Contrast Header Section */}
+              <div className="relative overflow-hidden rounded-2xl bg-[#111c2e] text-white p-6 sm:p-7 mb-6 shadow-md border border-[#213145]">
+                <div className="absolute -right-16 -bottom-16 w-80 h-80 rounded-full bg-[#0051d5] opacity-20 blur-3xl pointer-events-none"></div>
+
+                <div className="relative z-10 flex flex-col lg:flex-row lg:items-center justify-between gap-5">
+                  <div className="flex flex-col gap-2 max-w-3xl">
+                    <div className="flex flex-wrap items-center gap-2 mb-1">
+                      {isSealed ? (
+                        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#069669]/20 text-[#85f8c4] text-xs font-bold border border-[#069669]/30">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-[#85f8c4]" />
+                          Auditoría Sellada en PostgreSQL
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-white/15 text-white text-xs font-medium backdrop-blur-sm">
+                          <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span>
+                          En Proceso de Firma
+                        </span>
+                      )}
+
+                      <button
+                        type="button"
+                        onClick={() => setIsMigrationModalOpen(true)}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-[#85f8c4] text-[#002114] text-xs font-semibold hover:bg-[#a7f3d0] transition-colors"
+                      >
+                        <Database className="w-3.5 h-3.5 text-[#069669]" />
+                        Supabase Storage &amp; DB Connected
+                      </button>
+
+                      <span className="text-xs text-[#bcc7df] font-mono">
+                        ID: {auditData.id}
+                      </span>
+                    </div>
+
+                    <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold text-white tracking-tight leading-snug">
+                      {auditData.title}
+                    </h1>
+
+                    <p className="text-xs sm:text-sm text-[#bcc7df] leading-relaxed">
+                      {auditData.description}
+                    </p>
+                  </div>
+
+                  {/* Actions */}
+                  <div className="flex items-center gap-2.5 shrink-0 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={() => setIsJsonModalOpen(true)}
+                      className="px-3.5 py-2 rounded-lg bg-white/10 text-white hover:bg-white/20 transition-colors text-xs font-semibold flex items-center gap-2 border border-white/10"
+                    >
+                      <Download className="w-4 h-4" />
+                      Exportar JSON
+                    </button>
+
+                    <button
+                      type="button"
+                      id="btnOpenSignatureModal"
+                      onClick={() => setIsSignatureModalOpen(true)}
+                      className={`px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 shadow-md transition-all ${
+                        isSealed
+                          ? 'bg-[#069669] text-white hover:bg-[#057a55]'
+                          : 'bg-[#0051d5] text-white hover:bg-[#0041ab] active:scale-[0.99]'
+                      }`}
+                    >
+                      <CheckCircle2 className="w-4 h-4" />
+                      {isSealed ? 'Ver Acta Sellada' : 'Confirmar y Finalizar Auditoría'}
+                    </button>
+
+                    {isSealed && (
+                      <button
+                        type="button"
+                        onClick={handleResetAudit}
+                        title="Reiniciar estado de prueba"
+                        className="p-2 rounded-lg bg-white/10 text-[#bcc7df] hover:text-white hover:bg-white/20 transition-colors"
+                      >
+                        <RotateCcw className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* 4 KPI Metrics */}
+              <MetricCards stats={auditData.stats} />
+
+              {/* Non-blocking Alert Banner */}
+              <div className="rounded-xl bg-white border border-[#e5eeff] p-4 mb-6 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="flex items-start sm:items-center gap-3">
+                  <div className="w-9 h-9 rounded-lg bg-[#e5eeff] text-[#0051d5] flex items-center justify-center shrink-0">
+                    <Info className="w-5 h-5" />
+                  </div>
+                  <div className="flex flex-col">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-bold text-xs sm:text-sm text-[#0b1c30]">
+                        {auditData.pendingAlert.title}
+                      </span>
+                      <span className="px-2 py-0.5 rounded bg-[#eff4ff] text-[#45474c] text-[11px] font-semibold">
+                        {auditData.pendingAlert.badge}
+                      </span>
+                    </div>
+                    <p className="text-xs text-[#64748b] mt-0.5 leading-relaxed">
+                      {auditData.pendingAlert.description}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="shrink-0 flex items-center gap-2 pl-12 sm:pl-0">
+                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={formState.generateWebhook}
+                      onChange={(e) =>
+                        handleFormChange({ generateWebhook: e.target.checked })
+                      }
+                      className="w-4 h-4 accent-[#0051d5] rounded cursor-pointer"
+                    />
+                    <span className="text-xs font-semibold text-[#0b1c30]">
+                      Generar webhook en Postgres
+                    </span>
+                  </label>
+                </div>
+              </div>
+
+              {/* 12-Column Grid Layout: Checkpoints & Evidences (8 cols) vs Evaluation (4 cols) */}
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                {/* Left Workspace: Checkpoints & Evidences (8 cols) */}
+                <div className="lg:col-span-8 flex flex-col gap-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="w-7 h-7 rounded-lg bg-[#e5eeff] text-[#0051d5] flex items-center justify-center">
+                        <ListFilter className="w-4 h-4" />
+                      </div>
+                      <h2 className="font-bold text-base sm:text-lg text-[#0b1c30]">
+                        Registro de Checkpoints y Evidencias Multimedia
+                      </h2>
+                    </div>
+                    <span className="text-xs text-[#64748b]">
+                      Bucket:{' '}
+                      <code className="px-1.5 py-0.5 bg-[#eff4ff] border border-[#d3e4fe] rounded text-[#0051d5] font-mono text-[11px]">
+                        walkthrough-photos
+                      </code>
+                    </span>
+                  </div>
+
+                  {/* List of Checkpoints */}
+                  <div className="flex flex-col gap-3.5">
+                    {auditData.checkpoints.map((checkpoint) => (
+                      <CheckpointCard
+                        key={checkpoint.id}
+                        checkpoint={checkpoint}
+                        onViewImage={(img) => setActiveLightboxImage(img)}
+                      />
+                    ))}
+                  </div>
+                </div>
+
+                {/* Right Column: Supervisor Dictamen & Supabase Code Preview (4 cols) */}
+                <div className="lg:col-span-4 flex flex-col gap-5">
+                  <SupervisorDictamen
+                    formState={formState}
+                    onChange={handleFormChange}
+                    onOpenSignatureModal={() => setIsSignatureModalOpen(true)}
+                    isSealed={isSealed}
+                  />
+
+                  <SupabaseCodePreview
+                    recorridoId={auditData.id}
+                    formState={formState}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* 5. Tareas View */}
+          {currentScreen === 'tareas' && (
+            <TareasView
+              tareas={tareas}
+              edificios={edificios}
+              usuarios={usuarios}
+              onCreateTarea={handleCreateTarea}
+              onUpdateTarea={handleUpdateTarea}
+              onCreateLoteMasivo={handleCreateLoteMasivo}
+            />
+          )}
+
+          {/* 6. Automatizaciones View */}
+          {currentScreen === 'automatizaciones' && (
+            <AutomatizacionesView
+              automatizaciones={automatizaciones}
+              edificios={edificios}
+              usuarios={usuarios}
+              onCreateAutomatizacion={handleCreateAutomatizacion}
+              onToggleActive={handleToggleAutoActive}
+              onDelete={handleDeleteAuto}
+            />
+          )}
+
+          {/* 7. Reportes View */}
+          {currentScreen === 'reportes' && (
+            <ReportesView
+              edificios={edificios}
+              recorridos={recorridos}
+              tareas={tareas}
+            />
+          )}
+
+          {/* 8. Edificios View */}
+          {currentScreen === 'edificios' && (
+            <EdificiosView
+              edificios={edificios}
+              usuarios={usuarios}
+              onCreateEdificio={handleCreateEdificio}
+              onToggleActive={handleToggleEdificio}
+            />
+          )}
+
+          {/* 9. Usuarios View */}
+          {currentScreen === 'usuarios' && (
+            <UsuariosView
+              usuarios={usuarios}
+              edificios={edificios}
+              onCreateUsuario={handleCreateUsuario}
+              onToggleActive={handleToggleUsuario}
+            />
+          )}
+        </main>
+      </div>
+
+      {/* Supabase Migration Modal */}
+      <SupabaseMigrationModal
+        isOpen={isMigrationModalOpen}
+        onClose={() => setIsMigrationModalOpen(false)}
+      />
+
+      {/* Signature Modal */}
+      <SignatureModal
+        isOpen={isSignatureModalOpen}
+        onClose={() => setIsSignatureModalOpen(false)}
+        auditCode={auditData.code}
+        auditLocation={auditData.location}
+        supervisorLicense={auditData.supervisorLicense}
+        onConfirmSeal={handleConfirmSeal}
+      />
+
+      {/* Lightbox Modal */}
+      <LightboxModal
+        image={activeLightboxImage}
+        onClose={() => setActiveLightboxImage(null)}
+      />
+
+      {/* JSON Export Modal */}
+      <JsonExportModal
+        isOpen={isJsonModalOpen}
+        onClose={() => setIsJsonModalOpen(false)}
+        audit={auditData}
+        formState={formState}
+        isSealed={isSealed}
+        sealedAt={sealedAt}
+        signatureData={signatureData}
+      />
+
+      {/* Toast Feedback */}
+      {toastMessage && (
+        <div className="fixed bottom-6 right-6 z-50 rounded-xl bg-[#111c2e] text-white p-4 shadow-2xl flex items-center gap-3.5 border border-[#213145] animate-in slide-in-from-bottom duration-300 max-w-md">
+          <div className="w-9 h-9 rounded-full bg-[#069669] flex items-center justify-center text-white shrink-0 shadow">
+            <CheckCircle2 className="w-5 h-5" />
+          </div>
+          <div className="flex flex-col pr-2">
+            <span className="font-bold text-xs sm:text-sm text-white">{toastMessage}</span>
+            <span className="text-[11px] text-[#bcc7df] mt-0.5">
+              Transacción confirmada en Supabase PostgreSQL
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setToastMessage(null)}
+            className="text-[#bcc7df] hover:text-white transition-colors"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
