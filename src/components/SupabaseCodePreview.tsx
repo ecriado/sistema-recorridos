@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Terminal, Copy, Check, ShieldCheck } from 'lucide-react';
 import { DictamenFormState } from '../types';
+import { copyToClipboard } from '../lib/clipboard';
 
 interface SupabaseCodePreviewProps {
   recorridoId: string;

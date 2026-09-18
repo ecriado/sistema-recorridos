@@ -13,7 +13,8 @@ import {
   Wrench,
   Activity,
   ArrowRight,
-  ShieldAlert
+  ShieldAlert,
+  FileSpreadsheet
 } from 'lucide-react';
 import { 
   configureSupabase, 
@@ -23,19 +24,23 @@ import {
   TableDiagnosticResult
 } from '../lib/supabaseClient';
 import { repairSql, cleanRebuildSql } from '../data/supabaseScripts';
+import { SheetsToSupabaseMigrator } from './SheetsToSupabaseMigrator';
+import { copyToClipboard } from '../lib/clipboard';
 
 interface SupabaseMigrationModalProps {
   isOpen: boolean;
   onClose: () => void;
   isSuperAdmin?: boolean;
+  onDataMigrated?: () => void;
 }
 
 export const SupabaseMigrationModal: React.FC<SupabaseMigrationModalProps> = ({
   isOpen,
   onClose,
   isSuperAdmin = true,
+  onDataMigrated,
 }) => {
-  const [activeTab, setActiveTab] = useState<'diagnostico' | 'reparar' | 'sql' | 'config' | 'storage'>('diagnostico');
+  const [activeTab, setActiveTab] = useState<'diagnostico' | 'reparar' | 'sql' | 'migrar_sheets' | 'config' | 'storage'>('diagnostico');
   const [copied, setCopied] = useState<string | null>(null);
   const [supabaseUrl, setSupabaseUrl] = useState(
     localStorage.getItem('sr_supabase_url') || import.meta.env.VITE_SUPABASE_URL || ''
@@ -66,10 +71,14 @@ export const SupabaseMigrationModal: React.FC<SupabaseMigrationModalProps> = ({
     }
   };
 
-  const copyText = (text: string, id: string) => {
-    navigator.clipboard.writeText(text);
-    setCopied(id);
-    setTimeout(() => setCopied(null), 2000);
+  const copyText = async (text: string, id: string) => {
+    const success = await copyToClipboard(text);
+    if (success) {
+      setCopied(id);
+      setTimeout(() => setCopied(null), 2500);
+    } else {
+      prompt('Copia manualmente este texto con Ctrl+C / Cmd+C:', text);
+    }
   };
 
   // repairSql and cleanRebuildSql are imported from ../data/supabaseScripts
@@ -95,6 +104,7 @@ export const SupabaseMigrationModal: React.FC<SupabaseMigrationModalProps> = ({
       setTestResult(test);
       if (test.ok) {
         runDiagnostics();
+        onDataMigrated?.();
       }
     } else {
       setTestResult({ ok: false, message: res.message });
@@ -197,6 +207,18 @@ export const SupabaseMigrationModal: React.FC<SupabaseMigrationModalProps> = ({
           >
             <Terminal className="w-3.5 h-3.5" />
             Reinstalación Limpia
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('migrar_sheets')}
+            className={`px-3.5 py-2.5 text-xs font-bold border-b-2 flex items-center gap-1.5 transition-all whitespace-nowrap ${
+              activeTab === 'migrar_sheets'
+                ? 'border-[#0051d5] text-[#0051d5]'
+                : 'border-transparent text-[#64748b] hover:text-[#0b1c30]'
+            }`}
+          >
+            <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
+            Migrar desde Sheets
           </button>
           <button
             type="button"
@@ -479,6 +501,14 @@ export const SupabaseMigrationModal: React.FC<SupabaseMigrationModalProps> = ({
                 </div>
               )}
             </div>
+          )}
+
+          {/* TAB 4: MIGRAR DESDE GOOGLE SHEETS */}
+          {activeTab === 'migrar_sheets' && (
+            <SheetsToSupabaseMigrator
+              supabaseUrl={supabaseUrl}
+              supabaseKey={supabaseKey}
+            />
           )}
 
           {/* TAB 5: STORAGE */}

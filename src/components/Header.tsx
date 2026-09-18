@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Building2, User, Database, ShieldCheck, ChevronDown, Check, Sparkles } from 'lucide-react';
+import { Building2, User, Database, ShieldCheck, ChevronDown, Check, Sparkles, RefreshCw } from 'lucide-react';
 import { Usuario } from '../types';
 
 interface HeaderProps {
@@ -8,6 +8,9 @@ interface HeaderProps {
   onSelectUser: (user: Usuario) => void;
   onOpenMigrationModal?: () => void;
   isSuperAdmin: boolean;
+  onSyncSupabase?: () => void;
+  isSyncing?: boolean;
+  supabaseCount?: { edificios: number; tareas: number; usuarios: number };
 }
 
 export const Header: React.FC<HeaderProps> = ({ 
@@ -15,7 +18,10 @@ export const Header: React.FC<HeaderProps> = ({
   usuarios, 
   onSelectUser, 
   onOpenMigrationModal,
-  isSuperAdmin 
+  isSuperAdmin,
+  onSyncSupabase,
+  isSyncing = false,
+  supabaseCount
 }) => {
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -80,9 +86,25 @@ export const Header: React.FC<HeaderProps> = ({
               <span className="relative inline-flex rounded-full h-2 w-2 bg-[#069669]"></span>
             </span>
             <span className="text-xs font-semibold text-[#0b1c30]">
-              En línea <span className="text-[#0051d5] font-semibold">(Supabase DB)</span>
+              En línea{' '}
+              <span className="text-[#0051d5] font-semibold">
+                {supabaseCount ? `(${supabaseCount.edificios} Edificios BD)` : '(Supabase DB)'}
+              </span>
             </span>
           </div>
+
+          {onSyncSupabase && (
+            <button
+              type="button"
+              onClick={onSyncSupabase}
+              disabled={isSyncing}
+              className="px-2.5 py-1.5 rounded-lg bg-white border border-[#d3e4fe] hover:bg-[#eff4ff] text-xs font-medium text-[#0051d5] flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs disabled:opacity-60"
+              title="Recargar datos directamente desde la base de datos de Supabase"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin text-[#0051d5]' : ''}`} />
+              <span className="hidden md:inline">{isSyncing ? 'Sincronizando...' : 'Sincronizar Supabase'}</span>
+            </button>
+          )}
         </div>
 
         {/* User Info & Actions */}

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   ArrowLeft, 
   Cloud, 
@@ -21,6 +21,14 @@ import { SignatureModal } from './components/SignatureModal';
 import { LightboxModal } from './components/LightboxModal';
 import { JsonExportModal } from './components/JsonExportModal';
 import { SupabaseMigrationModal } from './components/SupabaseMigrationModal';
+
+import { 
+  loadEdificiosFromSupabase, 
+  loadUsuariosFromSupabase, 
+  loadRecorridosFromSupabase, 
+  loadTareasFromSupabase, 
+  loadAutomatizacionesFromSupabase 
+} from './lib/supabaseClient';
 
 import { DashboardView } from './components/views/DashboardView';
 import { RecorridosView } from './components/views/RecorridosView';
@@ -64,6 +72,72 @@ export default function App() {
   const [recorridos, setRecorridos] = useState<Recorrido[]>(initialRecorridos);
   const [tareas, setTareas] = useState<Tarea[]>(initialTareas);
   const [automatizaciones, setAutomatizaciones] = useState<TareaAutomatica[]>(initialAutomatizaciones);
+  const [isSyncingSupabase, setIsSyncingSupabase] = useState<boolean>(false);
+  const [supabaseLoaded, setSupabaseLoaded] = useState<boolean>(false);
+
+  // Carga automática en vivo desde Supabase
+  const fetchLiveSupabaseData = async (silent = false) => {
+    setIsSyncingSupabase(true);
+    try {
+      const [resEdificios, resUsuarios, resRecorridos, resTareas, resAuto] = await Promise.all([
+        loadEdificiosFromSupabase(),
+        loadUsuariosFromSupabase(),
+        loadRecorridosFromSupabase(),
+        loadTareasFromSupabase(),
+        loadAutomatizacionesFromSupabase(),
+      ]);
+
+      let loadedEdificios = 0;
+      if (resEdificios.data && resEdificios.data.length > 0) {
+        setEdificios(resEdificios.data);
+        loadedEdificios = resEdificios.data.length;
+      }
+      if (resUsuarios.data && resUsuarios.data.length > 0) {
+        setUsuarios(resUsuarios.data);
+        // Si el usuario actual no existe en Supabase, asignar el primero con rol SuperAdmin o el primer registro
+        if (!resUsuarios.data.some((u) => u.id_usuario === currentUserId)) {
+          const adminUser = resUsuarios.data.find((u) => u.rol === 'SuperAdmin') || resUsuarios.data[0];
+          setCurrentUserId(adminUser.id_usuario);
+        }
+      }
+      if (resRecorridos.data && resRecorridos.data.length > 0) {
+        setRecorridos(resRecorridos.data);
+        setActiveRecorrido(resRecorridos.data[0]);
+      }
+      if (resTareas.data && resTareas.data.length > 0) {
+        setTareas(resTareas.data);
+      }
+      if (resAuto.data && resAuto.data.length > 0) {
+        setAutomatizaciones(resAuto.data);
+      }
+
+      if (loadedEdificios > 0) {
+        setSupabaseLoaded(true);
+        if (!silent) {
+          showToast(`¡Sincronización exitosa! ${loadedEdificios} edificios y ${resUsuarios.data?.length || 0} usuarios cargados desde Supabase.`);
+        }
+      } else if (!silent) {
+        showToast('Supabase conectado pero la tabla no devolvió registros.');
+      }
+    } catch (err: any) {
+      console.warn('Error al cargar datos de Supabase:', err);
+      if (!silent) {
+        showToast('Aviso de conexión: no se pudieron obtener datos remotos.');
+      }
+    } finally {
+      setIsSyncingSupabase(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchLiveSupabaseData(false);
+  }, []);
+
+  // Active filters for navigation from KPI cards (GAS style)
+  const [recorridosFilterStatus, setRecorridosFilterStatus] = useState<string>('');
+  const [tareasFilterEstado, setTareasFilterEstado] = useState<string>('');
+  const [tareasFilterEdificio, setTareasFilterEdificio] = useState<string>('');
+  const [tareasFilterVencidas, setTareasFilterVencidas] = useState<boolean>(false);
 
   // Initial Previsualización y Cierre de Recorrido audit data
   const [auditData, setAuditData] = useState(initialAuditData);
@@ -333,6 +407,13 @@ export default function App() {
           }
         }}
         isSuperAdmin={isSuperAdmin}
+        onSyncSupabase={() => fetchLiveSupabaseData(false)}
+        isSyncing={isSyncingSupabase}
+        supabaseCount={{
+          edificios: edificios.length,
+          tareas: tareas.length,
+          usuarios: usuarios.length,
+        }}
       />
 
       {/* Fixed Sidebar */}
@@ -362,8 +443,12 @@ export default function App() {
               tareas={tareas}
               onNavigateToScreen={(scr, filterState) => {
                 if (scr === 'recorridos') {
+                  setRecorridosFilterStatus(filterState?.estado || '');
                   setCurrentScreen('recorridos');
                 } else if (scr === 'tareas') {
+                  setTareasFilterEstado(filterState?.estado || '');
+                  setTareasFilterEdificio(filterState?.edificioId || '');
+                  setTareasFilterVencidas(filterState?.filter === 'vencidas');
                   setCurrentScreen('tareas');
                 } else if (scr === 'recorrido_cierre') {
                   setCurrentScreen('recorrido_cierre');
@@ -388,6 +473,7 @@ export default function App() {
               recorridos={recorridos}
               edificios={edificios}
               usuarios={usuarios}
+              initialFilterStatus={recorridosFilterStatus}
               onOpenRecorrido={(rec) => {
                 setActiveRecorrido(rec);
                 if (rec.id_recorrido === 'REC-2024-089') {
@@ -644,6 +730,9 @@ export default function App() {
               onCreateTarea={handleCreateTarea}
               onUpdateTarea={handleUpdateTarea}
               onCreateLoteMasivo={handleCreateLoteMasivo}
+              initialFilterEstado={tareasFilterEstado}
+              initialFilterEdificio={tareasFilterEdificio}
+              initialFilterVencidas={tareasFilterVencidas}
             />
           )}
 
@@ -695,6 +784,7 @@ export default function App() {
         isOpen={isMigrationModalOpen}
         onClose={() => setIsMigrationModalOpen(false)}
         isSuperAdmin={isSuperAdmin}
+        onDataMigrated={() => fetchLiveSupabaseData(false)}
       />
 
       {/* Signature Modal */}

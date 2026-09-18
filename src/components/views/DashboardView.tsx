@@ -81,10 +81,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               type="button"
               onClick={onOpenMigrationModal}
               className="px-3 py-1.5 rounded-lg bg-white border border-[#d3e4fe] text-[#0051d5] text-xs font-bold hover:bg-[#eff4ff] transition-all flex items-center gap-1.5 shadow-sm cursor-pointer"
-              title="Herramienta de diagnóstico de BD (Exclusivo SuperAdmin)"
+              title="Herramienta de migración desde Google Sheets y diagnóstico de BD (Exclusivo SuperAdmin)"
             >
               <Database className="w-4 h-4 text-[#069669]" />
-              <span>Migración a Supabase (SQL)</span>
+              <span>Migración Sheets &rarr; Supabase</span>
               <span className="text-[9px] px-1 py-0.2 bg-[#eff4ff] text-[#0051d5] border border-[#d3e4fe] rounded font-semibold font-mono">
                 SuperAdmin
               </span>

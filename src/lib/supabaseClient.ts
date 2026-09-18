@@ -1,7 +1,17 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
-const defaultUrl = import.meta.env.VITE_SUPABASE_URL || localStorage.getItem('sr_supabase_url') || '';
-const defaultKey = import.meta.env.VITE_SUPABASE_ANON_KEY || localStorage.getItem('sr_supabase_key') || '';
+const defaultUrl = 
+  import.meta.env.VITE_SUPABASE_URL || 
+  localStorage.getItem('sr_supabase_url') || 
+  localStorage.getItem('VITE_SUPABASE_URL') || 
+  'https://wafkfxukpgtfromlgvif.supabase.co';
+
+const defaultKey = 
+  import.meta.env.VITE_SUPABASE_ANON_KEY || 
+  import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || 
+  localStorage.getItem('sr_supabase_key') || 
+  localStorage.getItem('VITE_SUPABASE_ANON_KEY') || 
+  'sb_publishable_9ZCxxaFBaoRTAuwQm28FOQ_17LFmqkE';
 
 let client: SupabaseClient | null = null;
 
@@ -242,6 +252,67 @@ export async function loadRecorridosFromSupabase(): Promise<{ data: any[] | null
       creado_por: row.creado_por || 'Sistema',
       checkpoints_count: row.checkpoints_count || 8,
       hallazgos_count: row.hallazgos_count || 0,
+    }));
+    return { data: mapped, error: null };
+  } catch (e: any) {
+    return { data: null, error: e?.message || 'Error desconocido' };
+  }
+}
+
+export async function loadTareasFromSupabase(): Promise<{ data: any[] | null; error: string | null }> {
+  if (!client) return { data: null, error: 'No conectado' };
+  try {
+    const { data, error } = await client.from('tareas').select('*');
+    if (error) return { data: null, error: error.message };
+    if (!data) return { data: [], error: null };
+
+    const mapped = data.map((row: any) => ({
+      id_tarea: row.id_tarea || row.codigo || row.id || `TAR-${Math.floor(Math.random()*10000)}`,
+      id_edificio: row.id_edificio || row.edificio_id || '',
+      edificio_nombre: row.edificio_nombre || '',
+      tipo_origen: row.tipo_origen || 'Manual',
+      asignado_a_email: row.asignado_a_email || '',
+      asignado_a_nombre: row.asignado_a_nombre || row.asignado_a_email?.split('@')[0] || 'Técnico',
+      asignado_a_rol: row.asignado_a_rol || 'Mantenimiento',
+      titulo_tarea: row.titulo_tarea || row.titulo || 'Tarea',
+      instrucciones: row.instrucciones || '',
+      prioridad: row.prioridad || 'Media',
+      fecha_creacion: row.created_at || row.fecha_creacion || new Date().toISOString(),
+      fecha_limite: row.fecha_limite,
+      creado_por: row.creado_por || 'Sistema',
+      estado_tarea: row.estado_tarea || row.estado || 'Pendiente',
+    }));
+    return { data: mapped, error: null };
+  } catch (e: any) {
+    return { data: null, error: e?.message || 'Error desconocido' };
+  }
+}
+
+export async function loadAutomatizacionesFromSupabase(): Promise<{ data: any[] | null; error: string | null }> {
+  if (!client) return { data: null, error: 'No conectado' };
+  try {
+    const { data, error } = await client.from('tareas_automaticas').select('*');
+    if (error) return { data: null, error: error.message };
+    if (!data) return { data: [], error: null };
+
+    const mapped = data.map((row: any) => ({
+      id_automatizacion: row.id_automatizacion || row.codigo || row.id || `AUT-${Math.floor(Math.random()*10000)}`,
+      creado_por_email: row.creado_por_email || row.creado_por || 'admin@eazyops.gt',
+      asignado_a_email: row.asignado_a_email || '',
+      asignado_a_nombre: row.asignado_a_nombre || row.asignado_a_email?.split('@')[0] || 'Técnico',
+      id_edificio: row.id_edificio || row.edificio_id || '',
+      edificio_nombre: row.edificio_nombre || '',
+      titulo: row.titulo || 'Tarea Periódica',
+      instrucciones: row.instrucciones || '',
+      prioridad: row.prioridad || 'Media',
+      frecuencia: row.frecuencia || 'Semanal',
+      dia_semana: row.dia_semana,
+      dia_mes: row.dia_mes,
+      hora: row.hora || '08:00',
+      fecha_inicio: row.fecha_inicio || new Date().toISOString().slice(0, 10),
+      fecha_fin: row.fecha_fin,
+      proxima_ejecucion: row.proxima_ejecucion,
+      activo: row.activo !== false,
     }));
     return { data: mapped, error: null };
   } catch (e: any) {

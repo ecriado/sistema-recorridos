@@ -26,6 +26,9 @@ interface TareasViewProps {
   onCreateLoteMasivo: (lote: { titulo: string; prioridad: TareaPrioridad; fecha_limite: string; instrucciones: string; edificios: string[] }) => void;
   initialSelectId?: string;
   initialSubview?: 'lista' | 'nueva' | 'lote';
+  initialFilterEstado?: string;
+  initialFilterEdificio?: string;
+  initialFilterVencidas?: boolean;
 }
 
 export const TareasView: React.FC<TareasViewProps> = ({
@@ -37,11 +40,15 @@ export const TareasView: React.FC<TareasViewProps> = ({
   onCreateLoteMasivo,
   initialSelectId = '',
   initialSubview = 'lista',
+  initialFilterEstado = '',
+  initialFilterEdificio = '',
+  initialFilterVencidas = false,
 }) => {
   const [subview, setSubview] = useState<'lista' | 'nueva' | 'lote'>(initialSubview);
-  const [filterEdificio, setFilterEdificio] = useState('');
-  const [filterEstado, setFilterEstado] = useState('');
+  const [filterEdificio, setFilterEdificio] = useState(initialFilterEdificio);
+  const [filterEstado, setFilterEstado] = useState(initialFilterEstado);
   const [filterPrioridad, setFilterPrioridad] = useState('');
+  const [filterSoloVencidas, setFilterSoloVencidas] = useState(initialFilterVencidas);
   const [selectedTareaId, setSelectedTareaId] = useState(initialSelectId || tareas[0]?.id_tarea || '');
 
   // Resolve modal state
@@ -74,6 +81,10 @@ export const TareasView: React.FC<TareasViewProps> = ({
     if (filterEdificio && t.id_edificio !== filterEdificio) return false;
     if (filterEstado && t.estado_tarea !== filterEstado) return false;
     if (filterPrioridad && t.prioridad !== filterPrioridad) return false;
+    if (filterSoloVencidas) {
+      const isPastDue = t.fecha_limite && new Date(t.fecha_limite).getTime() < Date.now();
+      if (!isPastDue || t.estado_tarea === 'Resuelta') return false;
+    }
     return true;
   });
 
@@ -450,6 +461,34 @@ export const TareasView: React.FC<TareasViewProps> = ({
               <option value="Media">Media</option>
               <option value="Baja">Baja</option>
             </select>
+
+            <button
+              type="button"
+              onClick={() => setFilterSoloVencidas(!filterSoloVencidas)}
+              className={`h-9 px-3 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer ${
+                filterSoloVencidas
+                  ? 'bg-rose-100 text-rose-800 border border-rose-300'
+                  : 'bg-[#f8f9ff] text-[#64748b] border border-[#e5eeff] hover:text-[#ba1a1a]'
+              }`}
+            >
+              <Clock className="w-3.5 h-3.5 text-[#ba1a1a]" />
+              <span>Solo Vencidas</span>
+            </button>
+
+            {(filterEdificio || filterEstado || filterPrioridad || filterSoloVencidas) && (
+              <button
+                type="button"
+                onClick={() => {
+                  setFilterEdificio('');
+                  setFilterEstado('');
+                  setFilterPrioridad('');
+                  setFilterSoloVencidas(false);
+                }}
+                className="h-9 px-2.5 rounded-lg text-xs text-[#64748b] hover:text-[#0b1c30] bg-white border border-[#e5eeff] transition-colors cursor-pointer"
+              >
+                Limpiar filtros
+              </button>
+            )}
 
             <span className="text-xs text-[#64748b] ml-auto">
               Mostrando {filteredTareas.length} de {tareas.length} tareas

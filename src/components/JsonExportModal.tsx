@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { X, Copy, Check, Download, FileCode } from 'lucide-react';
 import { AuditData, DictamenFormState } from '../types';
+import { copyToClipboard } from '../lib/clipboard';
 
 interface JsonExportModalProps {
   isOpen: boolean;
@@ -81,10 +82,14 @@ export const JsonExportModal: React.FC<JsonExportModalProps> = ({
 
   const jsonString = JSON.stringify(exportPayload, null, 2);
 
-  const handleCopy = () => {
-    navigator.clipboard.writeText(jsonString);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  const handleCopy = async () => {
+    const ok = await copyToClipboard(jsonString);
+    if (ok) {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+    } else {
+      prompt('Copia manualmente este JSON:', jsonString);
+    }
   };
 
   const handleDownload = () => {
