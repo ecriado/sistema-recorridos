@@ -27,6 +27,7 @@ interface UsuariosViewProps {
   onUpdateUsuario: (id: string, updates: Partial<Usuario>) => void;
   onDeleteUsuario: (id: string) => void;
   onToggleActive: (id: string) => void;
+  onChangePassword?: (idOrEmail: string, newPass: string) => Promise<{ ok: boolean; message: string }>;
 }
 
 export const UsuariosView: React.FC<UsuariosViewProps> = ({
@@ -38,6 +39,7 @@ export const UsuariosView: React.FC<UsuariosViewProps> = ({
   onUpdateUsuario,
   onDeleteUsuario,
   onToggleActive,
+  onChangePassword,
 }) => {
   // New User Modal
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -46,6 +48,14 @@ export const UsuariosView: React.FC<UsuariosViewProps> = ({
   const [rol, setRol] = useState<UserRole>('Administrador');
   const [login, setLogin] = useState('');
   const [selectedEdificios, setSelectedEdificios] = useState<string[]>([]);
+
+  // Password Change Modal (SuperAdmin)
+  const [passwordUser, setPasswordUser] = useState<Usuario | null>(null);
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [passwordError, setPasswordError] = useState('');
+  const [passwordSuccess, setPasswordSuccess] = useState('');
+  const [isChangingPass, setIsChangingPass] = useState(false);
 
   // Edit User Modal
   const [editingUser, setEditingUser] = useState<Usuario | null>(null);
@@ -300,6 +310,23 @@ export const UsuariosView: React.FC<UsuariosViewProps> = ({
 
                 {isSuperAdmin && (
                   <div className="flex items-center gap-1.5">
+                    {/* Botón Cambiar Contraseña (SuperAdmin) */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPasswordUser(u);
+                        setNewPassword('');
+                        setConfirmPassword('');
+                        setPasswordError('');
+                        setPasswordSuccess('');
+                      }}
+                      className="px-2 py-1.5 rounded-lg bg-[#f1f5f9] text-[#475569] hover:bg-[#e2e8f0] hover:text-[#0b1c30] text-xs font-semibold transition-colors flex items-center gap-1 cursor-pointer"
+                      title="Cambiar contraseña de usuario (Solo SuperAdmin)"
+                    >
+                      <Lock className="w-3.5 h-3.5 text-[#0051d5]" />
+                      <span className="hidden sm:inline">Clave</span>
+                    </button>
+
                     {/* Botón Editar */}
                     <button
                       type="button"
@@ -646,6 +673,129 @@ export const UsuariosView: React.FC<UsuariosViewProps> = ({
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Cambiar Contraseña (EXCLUSIVO SUPERADMIN) */}
+      {passwordUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#111c2e]/70 backdrop-blur-sm p-4 overflow-y-auto animate-in fade-in duration-200">
+          <div className="relative w-full max-w-md rounded-2xl bg-white shadow-2xl overflow-hidden border border-[#e5eeff]">
+            <div className="bg-[#111c2e] text-white p-5 flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-[#0051d5] flex items-center justify-center text-white">
+                  <Lock className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-base text-white">Cambiar Contraseña</h3>
+                  <p className="text-[11px] text-[#bcc7df]">Exclusivo para SuperAdmin</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPasswordUser(null)}
+                className="w-8 h-8 rounded-lg bg-white/10 hover:bg-white/20 flex items-center justify-center text-white cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                setPasswordError('');
+                setPasswordSuccess('');
+
+                if (!newPassword || newPassword.length < 6) {
+                  setPasswordError('La contraseña debe tener un mínimo de 6 caracteres.');
+                  return;
+                }
+                if (newPassword !== confirmPassword) {
+                  setPasswordError('Las contraseñas no coinciden.');
+                  return;
+                }
+
+                if (!onChangePassword) {
+                  setPasswordError('Función de actualización no configurada.');
+                  return;
+                }
+
+                setIsChangingPass(true);
+                const res = await onChangePassword(passwordUser.id_usuario, newPassword);
+                setIsChangingPass(false);
+
+                if (res.ok) {
+                  setPasswordSuccess(res.message || 'Contraseña actualizada con éxito en Supabase.');
+                  setTimeout(() => {
+                    setPasswordUser(null);
+                  }, 1200);
+                } else {
+                  setPasswordError(res.message || 'Error al actualizar contraseña.');
+                }
+              }}
+              className="p-6 flex flex-col gap-4"
+            >
+              <div className="p-3 rounded-xl bg-[#f8f9ff] border border-[#e5eeff]">
+                <p className="text-xs text-[#64748b]">Usuario afectado:</p>
+                <p className="text-xs font-bold text-[#0b1c30] mt-0.5">{passwordUser.nombre}</p>
+                <p className="text-[11px] font-mono text-[#0051d5]">{passwordUser.email}</p>
+              </div>
+
+              {passwordError && (
+                <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-xs text-red-700">
+                  {passwordError}
+                </div>
+              )}
+
+              {passwordSuccess && (
+                <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-800 font-semibold">
+                  ✓ {passwordSuccess}
+                </div>
+              )}
+
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-semibold text-[#0b1c30]">Nueva Contraseña</label>
+                <input
+                  type="password"
+                  required
+                  minLength={6}
+                  placeholder="Mínimo 6 caracteres"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  className="w-full h-10 px-3 bg-[#f8f9ff] text-[#0b1c30] rounded-xl text-xs border border-[#d3e4fe] focus:outline-none focus:border-[#0051d5]"
+                />
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-semibold text-[#0b1c30]">Confirmar Nueva Contraseña</label>
+                <input
+                  type="password"
+                  required
+                  minLength={6}
+                  placeholder="Repite la nueva contraseña"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  className="w-full h-10 px-3 bg-[#f8f9ff] text-[#0b1c30] rounded-xl text-xs border border-[#d3e4fe] focus:outline-none focus:border-[#0051d5]"
+                />
+              </div>
+
+              <div className="pt-3 border-t border-[#e5eeff] flex items-center justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setPasswordUser(null)}
+                  className="px-4 py-2 rounded-xl bg-white border border-[#c5c6cd] text-xs font-semibold text-[#0b1c30] hover:bg-[#f8f9ff]"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={isChangingPass}
+                  className="px-5 py-2.5 rounded-xl bg-[#0051d5] text-white text-xs font-bold hover:bg-[#0041ab] transition-all shadow-sm cursor-pointer disabled:opacity-50 flex items-center gap-2"
+                >
+                  {isChangingPass ? 'Guardando en Supabase...' : 'Guardar Nueva Contraseña'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

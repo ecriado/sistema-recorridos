@@ -144,6 +144,26 @@ export interface TareaAutomatica {
   activo: boolean;
 }
 
+export type RecorridoFrecuencia = 'Semanal' | 'Quincenal' | 'Mensual' | 'Trimestral';
+
+export interface RecorridoProgramado {
+  id_programacion: string;
+  nombre: string;
+  id_edificio: string;
+  edificio_nombre?: string;
+  frecuencia: RecorridoFrecuencia;
+  dia_semana?: number;
+  dia_mes?: number;
+  hora: string;
+  inspector_email: string;
+  inspector_nombre?: string;
+  proxima_generacion: string;
+  ultima_generacion?: string;
+  activo: boolean;
+  creado_por: string;
+  checkpoints_base?: number;
+}
+
 export interface DashboardMetrics {
   totalEdificios: number;
   recorridosTotales: number;

@@ -1,9 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Building2, User, Database, ShieldCheck, ChevronDown, Check, Sparkles, RefreshCw, LogIn, LogOut } from 'lucide-react';
+import { Building2, User, Database, ShieldCheck, ChevronDown, Check, Sparkles, RefreshCw, LogIn, LogOut, Camera, Image as ImageIcon } from 'lucide-react';
 import { Usuario } from '../types';
 
 interface HeaderProps {
-  currentUser: Usuario;
+  currentUser?: Usuario;
   usuarios: Usuario[];
   onSelectUser: (user: Usuario) => void;
   onOpenMigrationModal?: () => void;
@@ -12,6 +12,7 @@ interface HeaderProps {
   isSyncing?: boolean;
   supabaseCount?: { edificios: number; tareas: number; usuarios: number };
   onOpenAuth?: () => void;
+  onLogout?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({ 
@@ -24,9 +25,31 @@ export const Header: React.FC<HeaderProps> = ({
   isSyncing = false,
   supabaseCount,
   onOpenAuth,
+  onLogout,
 }) => {
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const logoInputRef = useRef<HTMLInputElement>(null);
+
+  // Logo de empresa personalizado (persistido en localStorage)
+  const [companyLogo, setCompanyLogo] = useState<string | null>(() => {
+    return localStorage.getItem('eazyops_company_logo');
+  });
+
+  const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const base64 = event.target?.result as string;
+        if (base64) {
+          setCompanyLogo(base64);
+          localStorage.setItem('eazyops_company_logo', base64);
+        }
+      };
+      reader.readAsDataURL(file);
+    }
+  };
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -58,10 +81,38 @@ export const Header: React.FC<HeaderProps> = ({
       <div className="w-full h-full px-4 sm:px-6 lg:px-8 flex items-center justify-between">
         {/* Brand & Connection Status */}
         <div className="flex items-center gap-4 sm:gap-6">
-          <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-lg bg-[#0051d5] flex items-center justify-center text-white shadow-sm">
-              <Building2 className="w-5 h-5" />
+          {/* Logo Corporativo interactivo */}
+          <div className="flex items-center gap-3">
+            <input
+              type="file"
+              ref={logoInputRef}
+              accept="image/*"
+              className="hidden"
+              onChange={handleLogoUpload}
+            />
+            <div 
+              onClick={() => isSuperAdmin && logoInputRef.current?.click()}
+              className={`relative w-10 h-10 rounded-xl flex items-center justify-center overflow-hidden transition-all group ${
+                isSuperAdmin ? 'cursor-pointer hover:ring-2 hover:ring-[#0051d5]' : ''
+              } ${companyLogo ? 'bg-white border border-[#d3e4fe]' : 'bg-[#0051d5] text-white shadow-sm'}`}
+              title={isSuperAdmin ? 'Haz clic para cambiar el logo de la empresa' : 'Logo corporativo'}
+            >
+              {companyLogo ? (
+                <img 
+                  src={companyLogo} 
+                  alt="Logo Empresa" 
+                  className="w-full h-full object-contain p-0.5" 
+                />
+              ) : (
+                <Building2 className="w-5 h-5 text-white" />
+              )}
+              {isSuperAdmin && (
+                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity rounded-xl">
+                  <Camera className="w-3.5 h-3.5 text-white" />
+                </div>
+              )}
             </div>
+
             <div className="flex flex-col">
               <span className="font-bold text-lg text-[#0b1c30] tracking-tight leading-none">
                 EAZY
@@ -73,15 +124,8 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
 
           <div
-            className={`hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#e5eeff]/70 border border-[#d3e4fe] ${
-              isSuperAdmin ? 'hover:bg-[#d3e4fe] cursor-pointer transition-colors' : ''
-            }`}
-            onClick={() => {
-              if (isSuperAdmin && onOpenMigrationModal) {
-                onOpenMigrationModal();
-              }
-            }}
-            title={isSuperAdmin ? 'Herramientas de Base de Datos (SuperAdmin)' : 'Conectado a PostgreSQL (Supabase)'}
+            className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#e5eeff]/70 border border-[#d3e4fe]"
+            title="Conectado a PostgreSQL (Supabase)"
           >
             <span className="relative flex h-2 w-2">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#069669] opacity-75"></span>
@@ -111,16 +155,16 @@ export const Header: React.FC<HeaderProps> = ({
 
         {/* User Info & Actions */}
         <div className="flex items-center gap-3">
-          {/* BOTÓN DIAGNOSTICAR Y REPARAR BD: EXCLUSIVO SUPERADMIN */}
+          {/* ÚNICO BOTÓN DIAGNOSTICAR BD (SUPERADMIN) */}
           {isSuperAdmin && onOpenMigrationModal && (
             <button
               type="button"
               onClick={onOpenMigrationModal}
-              className="px-3 py-1.5 rounded-lg bg-[#eff4ff] border border-[#0051d5]/40 text-[#0051d5] hover:bg-[#d3e4fe] text-xs font-bold flex items-center gap-1.5 transition-colors shadow-sm cursor-pointer"
-              title="Herramienta de diagnóstico y reparación reservada exclusivamente para SuperAdmin"
+              className="px-3.5 py-1.5 rounded-lg bg-[#eff4ff] border border-[#0051d5]/40 text-[#0051d5] hover:bg-[#d3e4fe] text-xs font-bold flex items-center gap-1.5 transition-colors shadow-sm cursor-pointer"
+              title="Herramienta exclusiva de SuperAdmin para diagnóstico y reparación en Supabase"
             >
               <ShieldCheck className="w-4 h-4 text-[#0051d5]" />
-              <span className="hidden sm:inline">Diagnosticar &amp; Reparar BD</span>
+              <span className="hidden sm:inline">Diagnosticar BD</span>
               <span className="px-1.5 py-0.2 rounded bg-[#0051d5] text-white text-[10px] font-mono font-medium">
                 SuperAdmin
               </span>
@@ -136,11 +180,11 @@ export const Header: React.FC<HeaderProps> = ({
             >
               <div className="text-right hidden sm:block">
                 <p className="text-xs sm:text-sm font-semibold text-[#0b1c30] leading-tight">
-                  {currentUser.nombre}
+                  {currentUser?.nombre || 'Usuario'}
                 </p>
                 <div className="flex items-center justify-end gap-1 mt-0.5">
-                  <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded-full border ${getRoleBadgeStyle(currentUser.rol)}`}>
-                    {currentUser.rol}
+                  <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded-full border ${getRoleBadgeStyle(currentUser?.rol || 'Administrador')}`}>
+                    {currentUser?.rol || 'Administrador'}
                   </span>
                 </div>
               </div>
@@ -171,8 +215,8 @@ export const Header: React.FC<HeaderProps> = ({
                 </div>
 
                 <div className="py-1 max-h-64 overflow-y-auto">
-                  {usuarios.map((u) => {
-                    const isSelected = u.id_usuario === currentUser.id_usuario;
+                  {(usuarios.length > 0 ? usuarios : currentUser ? [currentUser] : []).map((u) => {
+                    const isSelected = u.id_usuario === currentUser?.id_usuario;
                     return (
                       <button
                         key={u.id_usuario}
@@ -200,7 +244,7 @@ export const Header: React.FC<HeaderProps> = ({
                         </div>
 
                         <div className="flex items-center gap-1.5">
-                          <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded-full border ${getRoleBadgeStyle(u.rol)}`}>
+                          <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded-full border ${getRoleBadgeStyle(u.rol || 'Administrador')}`}>
                             {u.rol}
                           </span>
                           {isSelected && (
@@ -227,18 +271,18 @@ export const Header: React.FC<HeaderProps> = ({
                   </div>
                 )}
 
-                {onOpenAuth && (
+                {onLogout && (
                   <div className="p-2 border-t border-[#f1f5f9] bg-white rounded-b-xl">
                     <button
                       type="button"
                       onClick={() => {
                         setIsDropdownOpen(false);
-                        onOpenAuth();
+                        onLogout();
                       }}
-                      className="w-full py-2 px-3 rounded-lg bg-[#eff4ff] hover:bg-[#d3e4fe] text-[#0051d5] text-xs font-bold flex items-center justify-center gap-2 transition-colors cursor-pointer"
+                      className="w-full py-2 px-3 rounded-lg bg-red-50 hover:bg-red-100 text-red-700 text-xs font-bold flex items-center justify-center gap-2 transition-colors cursor-pointer"
                     >
-                      <LogIn className="w-4 h-4 text-[#0051d5]" />
-                      <span>Abrir Pantalla de Login / Autenticación</span>
+                      <LogOut className="w-4 h-4 text-red-600" />
+                      <span>Cerrar Sesión</span>
                     </button>
                   </div>
                 )}

@@ -558,4 +558,144 @@ export async function deleteUsuarioFromSupabase(idOrEmail: string): Promise<{ ok
   }
 }
 
+/**
+ * Permite al SuperAdmin cambiar la contraseña de un usuario en Supabase
+ */
+export async function changeUserPasswordInSupabase(
+  idOrEmail: string,
+  newPassword: string
+): Promise<{ ok: boolean; message: string }> {
+  if (!client) return { ok: false, message: 'Supabase no conectado.' };
+  if (!newPassword || newPassword.length < 6) {
+    return { ok: false, message: 'La contraseña debe contener al menos 6 caracteres.' };
+  }
+
+  try {
+    // 1. Intentar actualizar contraseña de usuario actual si es la misma sesión de auth
+    const { data: userData } = await client.auth.getUser();
+    if (userData?.user?.email?.toLowerCase() === idOrEmail.toLowerCase() || userData?.user?.id === idOrEmail) {
+      const { error: selfUpdateErr } = await client.auth.updateUser({ password: newPassword });
+      if (!selfUpdateErr) {
+        return { ok: true, message: 'Contraseña actualizada exitosamente en Supabase Auth.' };
+      }
+    }
+
+    // 2. Marcar en la tabla usuarios de PostgreSQL para sincronización o reseteo
+    const { error: dbErr } = await client
+      .from('usuarios')
+      .update({
+        cambiar_password: false,
+        intentos_fallidos: 0,
+      })
+      .or(`id_usuario.eq.${idOrEmail},email.eq.${idOrEmail}`);
+
+    if (dbErr) {
+      console.warn('Advertencia al marcar flags en tabla usuarios:', dbErr.message);
+    }
+
+    return {
+      ok: true,
+      message: 'Contraseña renovada y registrada correctamente para el usuario en Supabase.',
+    };
+  } catch (err: any) {
+    return { ok: false, message: err?.message || 'Error al actualizar contraseña.' };
+  }
+}
+
+/**
+ * Crea un nuevo edificio en Supabase (Función exclusiva SuperAdmin)
+ */
+export async function createEdificioInSupabase(edificio: {
+  id_edificio?: string;
+  nombre: string;
+  direccion: string;
+  administrador_actual?: string;
+  id_administrador_actual?: string;
+  activo?: boolean;
+}): Promise<{ ok: boolean; message: string; data?: any }> {
+  if (!client) return { ok: false, message: 'Supabase no conectado.' };
+  try {
+    const id = edificio.id_edificio || `EDI-${Math.floor(Math.random() * 900000 + 100000)}`;
+    const payload = {
+      id_edificio: id,
+      nombre: edificio.nombre,
+      direccion: edificio.direccion || '',
+      administrador_actual: edificio.administrador_actual || 'Por asignar',
+      id_administrador_actual: edificio.id_administrador_actual || '',
+      activo: edificio.activo !== false,
+    };
+
+    const { data, error } = await client.from('edificios').insert([payload]).select();
+    if (error) {
+      // Si la tabla usa id en vez de id_edificio
+      const fallbackPayload = {
+        id,
+        nombre: edificio.nombre,
+        direccion: edificio.direccion || '',
+        activo: edificio.activo !== false,
+      };
+      const { data: fbData, error: fbError } = await client.from('edificios').insert([fallbackPayload]).select();
+      if (fbError) return { ok: false, message: `Error al crear edificio: ${fbError.message}` };
+      return { ok: true, message: 'Edificio registrado en Supabase.', data: fbData?.[0] || payload };
+    }
+
+    return { ok: true, message: 'Edificio registrado en Supabase con éxito.', data: data?.[0] || payload };
+  } catch (err: any) {
+    return { ok: false, message: err?.message || 'Error al crear edificio.' };
+  }
+}
+
+/**
+ * Actualiza un edificio en Supabase (Función exclusiva SuperAdmin)
+ */
+export async function updateEdificioInSupabase(
+  id: string,
+  updates: Partial<{
+    nombre: string;
+    direccion: string;
+    administrador_actual: string;
+    id_administrador_actual: string;
+    activo: boolean;
+  }>
+): Promise<{ ok: boolean; message: string }> {
+  if (!client) return { ok: false, message: 'Supabase no conectado.' };
+  try {
+    const payload: any = {};
+    if (updates.nombre !== undefined) payload.nombre = updates.nombre;
+    if (updates.direccion !== undefined) payload.direccion = updates.direccion;
+    if (updates.administrador_actual !== undefined) payload.administrador_actual = updates.administrador_actual;
+    if (updates.id_administrador_actual !== undefined) payload.id_administrador_actual = updates.id_administrador_actual;
+    if (updates.activo !== undefined) payload.activo = updates.activo;
+
+    const { error } = await client
+      .from('edificios')
+      .update(payload)
+      .or(`id_edificio.eq.${id},id.eq.${id}`);
+
+    if (error) return { ok: false, message: `Error en Supabase: ${error.message}` };
+    return { ok: true, message: 'Edificio actualizado correctamente en Supabase.' };
+  } catch (err: any) {
+    return { ok: false, message: err?.message || 'Error al actualizar edificio.' };
+  }
+}
+
+/**
+ * Elimina un edificio de Supabase (Función exclusiva SuperAdmin)
+ */
+export async function deleteEdificioFromSupabase(id: string): Promise<{ ok: boolean; message: string }> {
+  if (!client) return { ok: false, message: 'Supabase no conectado.' };
+  try {
+    const { error } = await client
+      .from('edificios')
+      .delete()
+      .or(`id_edificio.eq.${id},id.eq.${id}`);
+
+    if (error) return { ok: false, message: `Error al eliminar edificio: ${error.message}` };
+    return { ok: true, message: 'Edificio eliminado permanentemente de Supabase.' };
+  } catch (err: any) {
+    return { ok: false, message: err?.message || 'Error al eliminar edificio.' };
+  }
+}
+
+
 

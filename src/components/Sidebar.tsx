@@ -9,7 +9,7 @@ import {
   Users,
   Database,
   ShieldCheck,
-  LogIn
+  LogOut
 } from 'lucide-react';
 import { NavScreen, UserRole } from '../types';
 
@@ -20,7 +20,7 @@ interface SidebarProps {
   onOpenMigrationModal?: () => void;
   isSuperAdmin?: boolean;
   userRole?: UserRole;
-  onOpenAuth?: () => void;
+  onLogout?: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ 
@@ -30,7 +30,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onOpenMigrationModal,
   isSuperAdmin = false,
   userRole = 'Administrador',
-  onOpenAuth,
+  onLogout,
 }) => {
   const allNavItems: { id: NavScreen; label: string; icon: React.ReactNode; badge?: string }[] = [
     { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard className="w-5 h-5" /> },
@@ -101,52 +101,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </nav>
       </div>
 
-      {/* Supabase Migration & Sede Central Box */}
-      <div className="px-4 flex flex-col gap-3">
-        {/* BOTÓN DIAGNOSTICAR BD: EXCLUSIVO DEL PERFIL SUPERADMIN */}
-        {isSuperAdmin && onOpenMigrationModal && (
+      {/* Logout Box */}
+      <div className="px-4 pb-4">
+        {onLogout && (
           <button
             type="button"
-            onClick={onOpenMigrationModal}
-            className="w-full p-3 rounded-xl bg-gradient-to-br from-[#111c2e] to-[#1e293b] text-white flex items-center gap-2.5 text-xs font-bold shadow hover:from-[#1b2a42] hover:to-[#27354a] transition-all border border-[#213145] cursor-pointer group"
-            title="Herramienta exclusiva de SuperAdmin para diagnóstico y reparación en Supabase"
+            onClick={onLogout}
+            className="w-full py-2.5 px-3 rounded-xl bg-white border border-red-200 hover:bg-red-50 text-red-700 text-xs font-semibold flex items-center justify-center gap-2 transition-colors cursor-pointer shadow-xs"
+            title="Cerrar sesión actual y regresar a la pantalla de login"
           >
-            <ShieldCheck className="w-4 h-4 text-[#85f8c4] group-hover:scale-110 transition-transform" />
-            <div className="flex flex-col text-left">
-              <div className="flex items-center gap-1.5">
-                <span className="text-[11px] font-bold text-white">Diagnosticar BD</span>
-                <span className="text-[9px] px-1 py-0.2 bg-[#0051d5] text-white rounded font-mono font-medium">SuperAdmin</span>
-              </div>
-              <span className="text-[10px] text-[#bcc7df] font-normal">Reparar columnas Supabase</span>
-            </div>
-          </button>
-        )}
-
-        <div className="p-3 rounded-xl bg-white border border-[#e5eeff] shadow-sm flex items-start gap-2.5">
-          <div className="w-8 h-8 rounded-lg bg-[#e5eeff] flex items-center justify-center text-[#0051d5] shrink-0 mt-0.5">
-            <Building className="w-4 h-4" />
-          </div>
-          <div className="flex flex-col">
-            <span className="text-[11px] text-[#64748b]">Sede Central</span>
-            <span className="text-xs text-[#0b1c30] font-bold leading-tight">
-              Torre Roble Corporativo
-            </span>
-            <span className="text-[10px] text-[#069669] font-medium mt-0.5 flex items-center gap-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-[#069669]"></span>
-              PostgreSQL Conectado
-            </span>
-          </div>
-        </div>
-
-        {onOpenAuth && (
-          <button
-            type="button"
-            onClick={onOpenAuth}
-            className="w-full py-2 px-3 rounded-xl bg-white border border-[#d3e4fe] hover:bg-[#eff4ff] text-[#0051d5] text-xs font-semibold flex items-center justify-center gap-2 transition-colors cursor-pointer shadow-xs"
-            title="Abrir pantalla de login para pruebas de autenticación"
-          >
-            <LogIn className="w-3.5 h-3.5 text-[#0051d5]" />
-            <span>Pantalla de Login</span>
+            <LogOut className="w-3.5 h-3.5 text-red-600" />
+            <span>Cerrar Sesión</span>
           </button>
         )}
       </div>

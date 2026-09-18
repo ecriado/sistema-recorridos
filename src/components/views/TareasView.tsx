@@ -13,7 +13,11 @@ import {
   Camera, 
   X, 
   Image as ImageIcon,
-  Check
+  Check,
+  Search,
+  ArrowUpDown,
+  ArrowDownWideNarrow,
+  ArrowUpNarrowWide
 } from 'lucide-react';
 import { Tarea, Edificio, Usuario, TareaPrioridad, TareaEstado } from '../../types';
 
@@ -45,6 +49,8 @@ export const TareasView: React.FC<TareasViewProps> = ({
   initialFilterVencidas = false,
 }) => {
   const [subview, setSubview] = useState<'lista' | 'nueva' | 'lote'>(initialSubview);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [sortOrder, setSortOrder] = useState<'recientes' | 'antiguas' | 'limite_cercano'>('recientes');
   const [filterEdificio, setFilterEdificio] = useState(initialFilterEdificio);
   const [filterEstado, setFilterEstado] = useState(initialFilterEstado);
   const [filterPrioridad, setFilterPrioridad] = useState('');
@@ -77,16 +83,46 @@ export const TareasView: React.FC<TareasViewProps> = ({
     edificios.map((e) => e.id_edificio)
   );
 
-  const filteredTareas = tareas.filter((t) => {
-    if (filterEdificio && t.id_edificio !== filterEdificio) return false;
-    if (filterEstado && t.estado_tarea !== filterEstado) return false;
-    if (filterPrioridad && t.prioridad !== filterPrioridad) return false;
-    if (filterSoloVencidas) {
-      const isPastDue = t.fecha_limite && new Date(t.fecha_limite).getTime() < Date.now();
-      if (!isPastDue || t.estado_tarea === 'Resuelta') return false;
-    }
-    return true;
-  });
+  const filteredTareas = tareas
+    .filter((t) => {
+      if (filterEdificio && t.id_edificio !== filterEdificio) return false;
+      if (filterEstado && t.estado_tarea !== filterEstado) return false;
+      if (filterPrioridad && t.prioridad !== filterPrioridad) return false;
+      if (filterSoloVencidas) {
+        const isPastDue = t.fecha_limite && new Date(t.fecha_limite).getTime() < Date.now();
+        if (!isPastDue || t.estado_tarea === 'Resuelta') return false;
+      }
+      if (searchTerm.trim()) {
+        const term = searchTerm.toLowerCase();
+        const matchesTitle = t.titulo_tarea?.toLowerCase().includes(term);
+        const matchesDesc = t.instrucciones?.toLowerCase().includes(term);
+        const matchesEdificio = t.edificio_nombre?.toLowerCase().includes(term) || t.id_edificio?.toLowerCase().includes(term);
+        const matchesUser = t.asignado_a_nombre?.toLowerCase().includes(term) || t.asignado_a_email?.toLowerCase().includes(term);
+        const matchesCode = t.id_tarea?.toLowerCase().includes(term);
+        if (!matchesTitle && !matchesDesc && !matchesEdificio && !matchesUser && !matchesCode) {
+          return false;
+        }
+      }
+      return true;
+    })
+    .sort((a, b) => {
+      if (sortOrder === 'recientes') {
+        const timeA = a.fecha_creacion ? new Date(a.fecha_creacion).getTime() : 0;
+        const timeB = b.fecha_creacion ? new Date(b.fecha_creacion).getTime() : 0;
+        return timeB - timeA;
+      }
+      if (sortOrder === 'antiguas') {
+        const timeA = a.fecha_creacion ? new Date(a.fecha_creacion).getTime() : 0;
+        const timeB = b.fecha_creacion ? new Date(b.fecha_creacion).getTime() : 0;
+        return timeA - timeB;
+      }
+      if (sortOrder === 'limite_cercano') {
+        const timeA = a.fecha_limite ? new Date(a.fecha_limite).getTime() : 9999999999999;
+        const timeB = b.fecha_limite ? new Date(b.fecha_limite).getTime() : 9999999999999;
+        return timeA - timeB;
+      }
+      return 0;
+    });
 
   const selectedTarea = tareas.find((t) => t.id_tarea === selectedTareaId) || filteredTareas[0];
 
@@ -422,9 +458,40 @@ export const TareasView: React.FC<TareasViewProps> = ({
         <div className="flex flex-col gap-4">
           {/* Filters toolbar */}
           <div className="flex flex-wrap items-center gap-3 p-3.5 bg-white border border-[#e5eeff] rounded-xl shadow-sm">
-            <div className="flex items-center gap-2 text-xs font-semibold text-[#64748b]">
-              <Filter className="w-4 h-4 text-[#0051d5]" />
-              <span>Filtros:</span>
+            {/* Buscador de tareas */}
+            <div className="flex items-center gap-2 bg-[#f8f9ff] px-3 py-1.5 rounded-lg border border-[#e5eeff] flex-1 min-w-[220px]">
+              <Search className="w-4 h-4 text-[#64748b] shrink-0" />
+              <input
+                type="text"
+                placeholder="Buscar tarea, código, responsable o edificio..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full bg-transparent text-xs text-[#0b1c30] placeholder-[#94a3b8] focus:outline-none"
+              />
+              {searchTerm && (
+                <button
+                  type="button"
+                  onClick={() => setSearchTerm('')}
+                  className="text-xs text-[#94a3b8] hover:text-[#0b1c30]"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+
+            {/* Ordenar por fecha */}
+            <div className="flex items-center gap-1.5 bg-[#f8f9ff] px-2.5 py-1 rounded-lg border border-[#e5eeff]">
+              <ArrowUpDown className="w-3.5 h-3.5 text-[#0051d5] shrink-0" />
+              <span className="text-[11px] font-semibold text-[#64748b]">Ordenar:</span>
+              <select
+                value={sortOrder}
+                onChange={(e) => setSortOrder(e.target.value as any)}
+                className="bg-transparent text-xs font-semibold text-[#0b1c30] focus:outline-none cursor-pointer"
+              >
+                <option value="recientes">Más recientes primero</option>
+                <option value="antiguas">Más antiguas primero</option>
+                <option value="limite_cercano">Fecha límite más próxima</option>
+              </select>
             </div>
 
             <select
@@ -475,7 +542,7 @@ export const TareasView: React.FC<TareasViewProps> = ({
               <span>Solo Vencidas</span>
             </button>
 
-            {(filterEdificio || filterEstado || filterPrioridad || filterSoloVencidas) && (
+            {(filterEdificio || filterEstado || filterPrioridad || filterSoloVencidas || searchTerm) && (
               <button
                 type="button"
                 onClick={() => {
@@ -483,6 +550,7 @@ export const TareasView: React.FC<TareasViewProps> = ({
                   setFilterEstado('');
                   setFilterPrioridad('');
                   setFilterSoloVencidas(false);
+                  setSearchTerm('');
                 }}
                 className="h-9 px-2.5 rounded-lg text-xs text-[#64748b] hover:text-[#0b1c30] bg-white border border-[#e5eeff] transition-colors cursor-pointer"
               >

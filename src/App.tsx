@@ -31,7 +31,11 @@ import {
   loadAutomatizacionesFromSupabase,
   updateUsuarioInSupabase,
   deleteUsuarioFromSupabase,
-  registerUserInSupabase
+  registerUserInSupabase,
+  changeUserPasswordInSupabase,
+  createEdificioInSupabase,
+  updateEdificioInSupabase,
+  deleteEdificioFromSupabase
 } from './lib/supabaseClient';
 
 import { DashboardView } from './components/views/DashboardView';
@@ -55,6 +59,7 @@ import {
   NavScreen, 
   DictamenFormState, 
   Recorrido, 
+  RecorridoProgramado,
   Tarea, 
   TareaAutomatica, 
   Edificio, 
@@ -69,16 +74,62 @@ export default function App() {
 
   const [edificios, setEdificios] = useState<Edificio[]>(initialEdificios);
   const [usuarios, setUsuarios] = useState<Usuario[]>(initialUsuarios);
-  // Current active user (defaults to SuperAdmin EAZY USR-000004)
-  const [currentUserId, setCurrentUserId] = useState<string>('USR-000004');
-  const currentUser = usuarios.find((u) => u.id_usuario === currentUserId) || usuarios[0];
+  
+  // Authentication session persistence in localStorage
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
+    return localStorage.getItem('eazyops_authenticated') === 'true';
+  });
+  const [currentUserId, setCurrentUserId] = useState<string>(() => {
+    return localStorage.getItem('eazyops_user_id') || 'USR-000004';
+  });
+  const [cachedUser, setCachedUser] = useState<Usuario | null>(() => {
+    try {
+      const saved = localStorage.getItem('eazyops_user_profile');
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
+
+  const defaultFallbackUser: Usuario = {
+    id_usuario: currentUserId || 'USR-000001',
+    nombre: 'Super Administrador',
+    email: 'superadmin@eazyops.com',
+    rol: 'SuperAdmin',
+    activo: true,
+    usuario_login: 'superadmin',
+  };
+
+  const currentUser: Usuario =
+    usuarios.find((u) => u.id_usuario === currentUserId) ||
+    (cachedUser && cachedUser.id_usuario === currentUserId ? cachedUser : null) ||
+    usuarios[0] ||
+    cachedUser ||
+    defaultFallbackUser;
+
   const isSuperAdmin = currentUser?.rol === 'SuperAdmin';
   const [recorridos, setRecorridos] = useState<Recorrido[]>(initialRecorridos);
   const [tareas, setTareas] = useState<Tarea[]>(initialTareas);
   const [automatizaciones, setAutomatizaciones] = useState<TareaAutomatica[]>(initialAutomatizaciones);
+  const [recorridosProgramados, setRecorridosProgramados] = useState<RecorridoProgramado[]>(() => {
+    try {
+      const saved = localStorage.getItem('eazyops_recorridos_programados');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
   const [isSyncingSupabase, setIsSyncingSupabase] = useState<boolean>(false);
   const [supabaseLoaded, setSupabaseLoaded] = useState<boolean>(false);
-  const [isAuthScreenOpen, setIsAuthScreenOpen] = useState<boolean>(false);
+
+  const handleLogout = () => {
+    localStorage.removeItem('eazyops_authenticated');
+    localStorage.removeItem('eazyops_user_id');
+    localStorage.removeItem('eazyops_user_profile');
+    setCachedUser(null);
+    setIsAuthenticated(false);
+    showToast('Has cerrado sesión correctamente.');
+  };
 
   // Carga automática en vivo desde Supabase
   const fetchLiveSupabaseData = async (silent = false) => {
@@ -342,8 +393,8 @@ export default function App() {
     showToast('Automatización eliminada.');
   };
 
-  const handleCreateEdificio = (nuevo: { nombre: string; direccion: string; id_administrador: string }) => {
-    const nextId = `EDI-00000${edificios.length + 1}`;
+  const handleCreateEdificio = async (nuevo: { nombre: string; direccion: string; id_administrador?: string; administrador_actual?: string }) => {
+    const nextId = `EDI-${String(Date.now()).slice(-6)}`;
     const admin = usuarios.find((u) => u.id_usuario === nuevo.id_administrador);
     const item: Edificio = {
       id_edificio: nextId,
@@ -351,16 +402,68 @@ export default function App() {
       direccion: nuevo.direccion,
       activo: true,
       id_administrador_actual: nuevo.id_administrador,
-      administrador_actual: admin?.nombre || 'Sin Administrador',
+      administrador_actual: nuevo.administrador_actual || admin?.nombre || 'Sin Administrador',
     };
     setEdificios([...edificios, item]);
-    showToast(`Edificio ${nuevo.nombre} creado en Supabase.`);
+    showToast(`Guardando edificio en Supabase...`);
+    try {
+      const res = await createEdificioInSupabase(item);
+      if (res.ok) {
+        showToast(`Edificio ${nuevo.nombre} guardado en Supabase.`);
+      } else {
+        showToast(`Aviso Supabase: ${res.message}`);
+      }
+    } catch (e: any) {
+      console.warn(e);
+    }
   };
 
-  const handleToggleEdificio = (id: string) => {
+  const handleUpdateEdificio = async (id: string, updates: Partial<Edificio>) => {
     setEdificios((prev) =>
-      prev.map((e) => (e.id_edificio === id ? { ...e, activo: !e.activo } : e))
+      prev.map((e) => (e.id_edificio === id ? { ...e, ...updates } : e))
     );
+    showToast(`Actualizando edificio en Supabase...`);
+    try {
+      const res = await updateEdificioInSupabase(id, updates);
+      if (res.ok) {
+        showToast(`Edificio actualizado en Supabase.`);
+      } else {
+        showToast(`Aviso Supabase: ${res.message}`);
+      }
+    } catch (e: any) {
+      console.warn(e);
+    }
+  };
+
+  const handleDeleteEdificio = async (id: string) => {
+    const vict = edificios.find((e) => e.id_edificio === id);
+    setEdificios((prev) => prev.filter((e) => e.id_edificio !== id));
+    showToast(`Eliminando edificio de Supabase...`);
+    try {
+      const res = await deleteEdificioFromSupabase(id);
+      if (res.ok) {
+        showToast(`Edificio ${vict?.nombre || id} eliminado de Supabase.`);
+      } else {
+        showToast(`Aviso Supabase: ${res.message}`);
+      }
+    } catch (e: any) {
+      console.warn(e);
+    }
+  };
+
+  const handleToggleEdificio = async (id: string) => {
+    const ed = edificios.find((e) => e.id_edificio === id);
+    if (!ed) return;
+    const newActivo = !ed.activo;
+    setEdificios((prev) =>
+      prev.map((e) => (e.id_edificio === id ? { ...e, activo: newActivo } : e))
+    );
+    try {
+      await updateEdificioInSupabase(id, { activo: newActivo });
+      showToast(`Edificio ${ed.nombre} ${newActivo ? 'habilitado' : 'inhabilitado'} en Supabase.`);
+    } catch (e: any) {
+      console.warn(e);
+    }
   };
 
   const handleCreateUsuario = async (nuevo: Partial<Usuario>) => {
@@ -447,7 +550,95 @@ export default function App() {
     }
   };
 
+  const handleChangePassword = async (idOrEmail: string, newPass: string) => {
+    try {
+      const res = await changeUserPasswordInSupabase(idOrEmail, newPass);
+      if (res.ok) {
+        showToast(res.message);
+      } else {
+        showToast(`Error Supabase: ${res.message}`);
+      }
+      return res;
+    } catch (err: any) {
+      return { ok: false, message: err?.message || 'Error al conectar con Supabase' };
+    }
+  };
+
+  // Handlers para Recorridos Programados (Automatizaciones)
+  const handleCreateRecorridoProgramado = (nuevo: Partial<RecorridoProgramado>) => {
+    const nextId = `PROG-${String(Date.now()).slice(-6)}`;
+    const nuevoRec: RecorridoProgramado = {
+      id_programacion: nextId,
+      nombre: nuevo.nombre || 'Recorrido Periódico',
+      id_edificio: nuevo.id_edificio || edificios[0]?.id_edificio || '',
+      edificio_nombre: nuevo.edificio_nombre || '',
+      frecuencia: nuevo.frecuencia || 'Semanal',
+      hora: nuevo.hora || '09:00',
+      dia_semana: nuevo.dia_semana ?? 1,
+      dia_mes: nuevo.dia_mes ?? 1,
+      inspector_email: nuevo.inspector_email || usuarios[0]?.email || '',
+      inspector_nombre: nuevo.inspector_nombre || usuarios[0]?.nombre || '',
+      proxima_generacion: nuevo.proxima_generacion || new Date(Date.now() + 86400000 * 7).toISOString(),
+      activo: true,
+      creado_por: currentUser?.email || 'superadmin@eazyops.com',
+      checkpoints_base: nuevo.checkpoints_base || 8,
+    };
+    const updated = [nuevoRec, ...recorridosProgramados];
+    setRecorridosProgramados(updated);
+    try {
+      localStorage.setItem('eazyops_recorridos_programados', JSON.stringify(updated));
+    } catch (e) {
+      console.warn(e);
+    }
+    showToast(`Programación de recorrido ${nuevoRec.nombre} creada exitosamente.`);
+  };
+
+  const handleToggleRecorridoProgramado = (id: string) => {
+    const updated = recorridosProgramados.map((r) =>
+      r.id_programacion === id ? { ...r, activo: !r.activo } : r
+    );
+    setRecorridosProgramados(updated);
+    try {
+      localStorage.setItem('eazyops_recorridos_programados', JSON.stringify(updated));
+    } catch (e) {
+      console.warn(e);
+    }
+    showToast(`Estado de programación de recorrido actualizado.`);
+  };
+
+  const handleDeleteRecorridoProgramado = (id: string) => {
+    const updated = recorridosProgramados.filter((r) => r.id_programacion !== id);
+    setRecorridosProgramados(updated);
+    try {
+      localStorage.setItem('eazyops_recorridos_programados', JSON.stringify(updated));
+    } catch (e) {
+      console.warn(e);
+    }
+    showToast(`Programación de recorrido eliminada.`);
+  };
+
   const pendingTasksCount = tareas.filter((t) => t.estado_tarea === 'Pendiente').length;
+
+  // Si el usuario no ha iniciado sesión, mostrar estrictamente la pantalla de Login
+  if (!isAuthenticated) {
+    return (
+      <AuthScreen
+        onLoginSuccess={(loggedUser) => {
+          setCurrentUserId(loggedUser.id_usuario);
+          setIsAuthenticated(true);
+          localStorage.setItem('eazyops_authenticated', 'true');
+          localStorage.setItem('eazyops_user_id', loggedUser.id_usuario);
+          localStorage.setItem('eazyops_user_profile', JSON.stringify(loggedUser));
+          setCachedUser(loggedUser);
+          setUsuarios((prev) => {
+            if (prev.some((u) => u.id_usuario === loggedUser.id_usuario)) return prev;
+            return [loggedUser, ...prev];
+          });
+          showToast(`¡Bienvenido! Sesión iniciada como ${loggedUser.nombre} (${loggedUser.rol})`);
+        }}
+      />
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#f8f9ff] text-[#0b1c30]">
@@ -457,6 +648,9 @@ export default function App() {
         usuarios={usuarios}
         onSelectUser={(u) => {
           setCurrentUserId(u.id_usuario);
+          localStorage.setItem('eazyops_user_id', u.id_usuario);
+          localStorage.setItem('eazyops_user_profile', JSON.stringify(u));
+          setCachedUser(u);
           // If switching away from SuperAdmin while on 'usuarios' screen, redirect to dashboard
           if (u.rol !== 'SuperAdmin' && currentScreen === 'usuarios') {
             setCurrentScreen('dashboard');
@@ -482,7 +676,7 @@ export default function App() {
           tareas: tareas.length,
           usuarios: usuarios.length,
         }}
-        onOpenAuth={() => setIsAuthScreenOpen(true)}
+        onLogout={handleLogout}
       />
 
       {/* Fixed Sidebar */}
@@ -496,8 +690,8 @@ export default function App() {
           }
         }}
         isSuperAdmin={isSuperAdmin}
-        userRole={currentUser.rol}
-        onOpenAuth={() => setIsAuthScreenOpen(true)}
+        userRole={currentUser?.rol || 'Administrador'}
+        onLogout={handleLogout}
       />
 
       {/* Main Content Area */}
@@ -810,11 +1004,15 @@ export default function App() {
           {currentScreen === 'automatizaciones' && (
             <AutomatizacionesView
               automatizaciones={automatizaciones}
+              recorridosProgramados={recorridosProgramados}
               edificios={edificios}
               usuarios={usuarios}
               onCreateAutomatizacion={handleCreateAutomatizacion}
               onToggleActive={handleToggleAutoActive}
               onDelete={handleDeleteAuto}
+              onCreateRecorridoProgramado={handleCreateRecorridoProgramado}
+              onToggleRecorridoProgramado={handleToggleRecorridoProgramado}
+              onDeleteRecorridoProgramado={handleDeleteRecorridoProgramado}
             />
           )}
 
@@ -832,7 +1030,10 @@ export default function App() {
             <EdificiosView
               edificios={edificios}
               usuarios={usuarios}
+              isSuperAdmin={isSuperAdmin}
               onCreateEdificio={handleCreateEdificio}
+              onUpdateEdificio={handleUpdateEdificio}
+              onDeleteEdificio={handleDeleteEdificio}
               onToggleActive={handleToggleEdificio}
             />
           )}
@@ -848,26 +1049,11 @@ export default function App() {
               onUpdateUsuario={handleUpdateUsuario}
               onDeleteUsuario={handleDeleteUsuario}
               onToggleActive={handleToggleUsuario}
+              onChangePassword={handleChangePassword}
             />
           )}
         </main>
       </div>
-
-      {/* Auth / Login Modal Screen */}
-      {isAuthScreenOpen && (
-        <div className="fixed inset-0 z-50 overflow-y-auto">
-          <AuthScreen
-            usuarios={usuarios}
-            currentUser={currentUser}
-            onLoginSuccess={(loggedUser) => {
-              setCurrentUserId(loggedUser.id_usuario);
-              setIsAuthScreenOpen(false);
-              showToast(`¡Bienvenido! Sesión iniciada como ${loggedUser.nombre} (${loggedUser.rol})`);
-            }}
-            onCancel={() => setIsAuthScreenOpen(false)}
-          />
-        </div>
-      )}
 
       {/* Supabase Migration Modal - Restricted to SuperAdmin */}
       <SupabaseMigrationModal
