@@ -8,7 +8,8 @@ import {
   Building,
   Users,
   Database,
-  ShieldCheck
+  ShieldCheck,
+  LogIn
 } from 'lucide-react';
 import { NavScreen, UserRole } from '../types';
 
@@ -19,6 +20,7 @@ interface SidebarProps {
   onOpenMigrationModal?: () => void;
   isSuperAdmin?: boolean;
   userRole?: UserRole;
+  onOpenAuth?: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ 
@@ -27,7 +29,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   pendingTasksCount = 1,
   onOpenMigrationModal,
   isSuperAdmin = false,
-  userRole = 'Administrador'
+  userRole = 'Administrador',
+  onOpenAuth,
 }) => {
   const allNavItems: { id: NavScreen; label: string; icon: React.ReactNode; badge?: string }[] = [
     { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard className="w-5 h-5" /> },
@@ -134,6 +137,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </span>
           </div>
         </div>
+
+        {onOpenAuth && (
+          <button
+            type="button"
+            onClick={onOpenAuth}
+            className="w-full py-2 px-3 rounded-xl bg-white border border-[#d3e4fe] hover:bg-[#eff4ff] text-[#0051d5] text-xs font-semibold flex items-center justify-center gap-2 transition-colors cursor-pointer shadow-xs"
+            title="Abrir pantalla de login para pruebas de autenticación"
+          >
+            <LogIn className="w-3.5 h-3.5 text-[#0051d5]" />
+            <span>Pantalla de Login</span>
+          </button>
+        )}
       </div>
     </aside>
   );

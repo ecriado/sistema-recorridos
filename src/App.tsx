@@ -21,13 +21,17 @@ import { SignatureModal } from './components/SignatureModal';
 import { LightboxModal } from './components/LightboxModal';
 import { JsonExportModal } from './components/JsonExportModal';
 import { SupabaseMigrationModal } from './components/SupabaseMigrationModal';
+import { AuthScreen } from './components/AuthScreen';
 
 import { 
   loadEdificiosFromSupabase, 
   loadUsuariosFromSupabase, 
   loadRecorridosFromSupabase, 
   loadTareasFromSupabase, 
-  loadAutomatizacionesFromSupabase 
+  loadAutomatizacionesFromSupabase,
+  updateUsuarioInSupabase,
+  deleteUsuarioFromSupabase,
+  registerUserInSupabase
 } from './lib/supabaseClient';
 
 import { DashboardView } from './components/views/DashboardView';
@@ -74,6 +78,7 @@ export default function App() {
   const [automatizaciones, setAutomatizaciones] = useState<TareaAutomatica[]>(initialAutomatizaciones);
   const [isSyncingSupabase, setIsSyncingSupabase] = useState<boolean>(false);
   const [supabaseLoaded, setSupabaseLoaded] = useState<boolean>(false);
+  const [isAuthScreenOpen, setIsAuthScreenOpen] = useState<boolean>(false);
 
   // Carga automática en vivo desde Supabase
   const fetchLiveSupabaseData = async (silent = false) => {
@@ -358,8 +363,8 @@ export default function App() {
     );
   };
 
-  const handleCreateUsuario = (nuevo: Partial<Usuario>) => {
-    const nextId = `USR-00000${usuarios.length + 1}`;
+  const handleCreateUsuario = async (nuevo: Partial<Usuario>) => {
+    const nextId = `USR-${String(usuarios.length + 1).padStart(6, '0')}`;
     const item: Usuario = {
       id_usuario: nextId,
       nombre: nuevo.nombre || '',
@@ -369,14 +374,77 @@ export default function App() {
       activo: true,
       edificios: nuevo.edificios,
     };
-    setUsuarios([...usuarios, item]);
-    showToast(`Usuario ${nuevo.nombre} registrado con éxito.`);
+    setUsuarios((prev) => [...prev, item]);
+    showToast(`Registrando ${nuevo.nombre} en Supabase...`);
+
+    try {
+      const res = await registerUserInSupabase({
+        nombre: item.nombre,
+        email: item.email,
+        rol: item.rol,
+        usuario_login: item.usuario_login,
+      });
+      if (res.ok && res.user) {
+        setUsuarios((prev) =>
+          prev.map((u) => (u.id_usuario === nextId ? res.user! : u))
+        );
+        showToast(`Usuario ${item.nombre} guardado en Supabase.`);
+      }
+    } catch (err: any) {
+      console.warn('Error al persistir usuario en Supabase:', err);
+    }
   };
 
-  const handleToggleUsuario = (id: string) => {
+  const handleUpdateUsuario = async (id: string, updates: Partial<Usuario>) => {
     setUsuarios((prev) =>
-      prev.map((u) => (u.id_usuario === id ? { ...u, activo: !u.activo } : u))
+      prev.map((u) => (u.id_usuario === id ? { ...u, ...updates } : u))
     );
+    showToast(`Guardando cambios de usuario en Supabase...`);
+    try {
+      const res = await updateUsuarioInSupabase(id, updates);
+      if (res.ok) {
+        showToast(`¡Usuario ${updates.nombre || id} actualizado en Supabase!`);
+      } else {
+        showToast(`Aviso Supabase: ${res.message}`);
+      }
+    } catch (err: any) {
+      console.warn(err);
+    }
+  };
+
+  const handleDeleteUsuario = async (id: string) => {
+    if (id === currentUserId) {
+      showToast('No puedes eliminar tu propio usuario en sesión activa.');
+      return;
+    }
+    const victim = usuarios.find((u) => u.id_usuario === id);
+    setUsuarios((prev) => prev.filter((u) => u.id_usuario !== id));
+    showToast(`Eliminando usuario de Supabase...`);
+    try {
+      const res = await deleteUsuarioFromSupabase(id);
+      if (res.ok) {
+        showToast(`Usuario ${victim?.nombre || id} eliminado de Supabase.`);
+      } else {
+        showToast(`Aviso Supabase: ${res.message}`);
+      }
+    } catch (err: any) {
+      console.warn(err);
+    }
+  };
+
+  const handleToggleUsuario = async (id: string) => {
+    const user = usuarios.find((u) => u.id_usuario === id);
+    if (!user) return;
+    const newActivo = !user.activo;
+    setUsuarios((prev) =>
+      prev.map((u) => (u.id_usuario === id ? { ...u, activo: newActivo } : u))
+    );
+    try {
+      await updateUsuarioInSupabase(id, { activo: newActivo });
+      showToast(`Usuario ${user.nombre} ${newActivo ? 'habilitado' : 'inhabilitado'} en Supabase.`);
+    } catch (e: any) {
+      console.warn(e);
+    }
   };
 
   const pendingTasksCount = tareas.filter((t) => t.estado_tarea === 'Pendiente').length;
@@ -414,6 +482,7 @@ export default function App() {
           tareas: tareas.length,
           usuarios: usuarios.length,
         }}
+        onOpenAuth={() => setIsAuthScreenOpen(true)}
       />
 
       {/* Fixed Sidebar */}
@@ -428,6 +497,7 @@ export default function App() {
         }}
         isSuperAdmin={isSuperAdmin}
         userRole={currentUser.rol}
+        onOpenAuth={() => setIsAuthScreenOpen(true)}
       />
 
       {/* Main Content Area */}
@@ -772,12 +842,32 @@ export default function App() {
             <UsuariosView
               usuarios={usuarios}
               edificios={edificios}
+              currentUser={currentUser}
+              isSuperAdmin={isSuperAdmin}
               onCreateUsuario={handleCreateUsuario}
+              onUpdateUsuario={handleUpdateUsuario}
+              onDeleteUsuario={handleDeleteUsuario}
               onToggleActive={handleToggleUsuario}
             />
           )}
         </main>
       </div>
+
+      {/* Auth / Login Modal Screen */}
+      {isAuthScreenOpen && (
+        <div className="fixed inset-0 z-50 overflow-y-auto">
+          <AuthScreen
+            usuarios={usuarios}
+            currentUser={currentUser}
+            onLoginSuccess={(loggedUser) => {
+              setCurrentUserId(loggedUser.id_usuario);
+              setIsAuthScreenOpen(false);
+              showToast(`¡Bienvenido! Sesión iniciada como ${loggedUser.nombre} (${loggedUser.rol})`);
+            }}
+            onCancel={() => setIsAuthScreenOpen(false)}
+          />
+        </div>
+      )}
 
       {/* Supabase Migration Modal - Restricted to SuperAdmin */}
       <SupabaseMigrationModal

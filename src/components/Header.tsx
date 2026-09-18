@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Building2, User, Database, ShieldCheck, ChevronDown, Check, Sparkles, RefreshCw } from 'lucide-react';
+import { Building2, User, Database, ShieldCheck, ChevronDown, Check, Sparkles, RefreshCw, LogIn, LogOut } from 'lucide-react';
 import { Usuario } from '../types';
 
 interface HeaderProps {
@@ -11,6 +11,7 @@ interface HeaderProps {
   onSyncSupabase?: () => void;
   isSyncing?: boolean;
   supabaseCount?: { edificios: number; tareas: number; usuarios: number };
+  onOpenAuth?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({ 
@@ -21,7 +22,8 @@ export const Header: React.FC<HeaderProps> = ({
   isSuperAdmin,
   onSyncSupabase,
   isSyncing = false,
-  supabaseCount
+  supabaseCount,
+  onOpenAuth,
 }) => {
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -211,17 +213,33 @@ export const Header: React.FC<HeaderProps> = ({
                 </div>
 
                 {isSuperAdmin ? (
-                  <div className="px-3.5 pt-2 pb-1 border-t border-[#f1f5f9] bg-[#f8faff] rounded-b-xl">
+                  <div className="px-3.5 pt-2 pb-1 border-t border-[#f1f5f9] bg-[#f8faff]">
                     <p className="text-[10px] text-[#0051d5] font-semibold flex items-center gap-1">
                       <ShieldCheck className="w-3 h-3 text-[#0051d5]" />
                       Perfil SuperAdmin: acceso a reparación y gestión total.
                     </p>
                   </div>
                 ) : (
-                  <div className="px-3.5 pt-2 pb-1 border-t border-[#f1f5f9] bg-[#fff] rounded-b-xl">
+                  <div className="px-3.5 pt-2 pb-1 border-t border-[#f1f5f9] bg-[#fff]">
                     <p className="text-[10px] text-[#64748b]">
                       Las herramientas de reparación de BD están ocultas para este rol.
                     </p>
+                  </div>
+                )}
+
+                {onOpenAuth && (
+                  <div className="p-2 border-t border-[#f1f5f9] bg-white rounded-b-xl">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsDropdownOpen(false);
+                        onOpenAuth();
+                      }}
+                      className="w-full py-2 px-3 rounded-lg bg-[#eff4ff] hover:bg-[#d3e4fe] text-[#0051d5] text-xs font-bold flex items-center justify-center gap-2 transition-colors cursor-pointer"
+                    >
+                      <LogIn className="w-4 h-4 text-[#0051d5]" />
+                      <span>Abrir Pantalla de Login / Autenticación</span>
+                    </button>
                   </div>
                 )}
               </div>

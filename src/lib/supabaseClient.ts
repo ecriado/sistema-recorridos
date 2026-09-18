@@ -320,3 +320,242 @@ export async function loadAutomatizacionesFromSupabase(): Promise<{ data: any[] 
   }
 }
 
+// -------------------------------------------------------------
+// FUNCIONES DE AUTENTICACIÓN Y GESTIÓN DE USUARIOS (SUPERADMIN)
+// -------------------------------------------------------------
+
+export interface AuthResult {
+  ok: boolean;
+  user?: any;
+  message: string;
+  source?: 'supabase_auth' | 'database_profile' | 'local_fallback';
+}
+
+/**
+ * Autentica usuario vía Supabase Auth (GoTrue) o valida credenciales contra la tabla 'usuarios'.
+ */
+export async function authenticateUser(emailOrLogin: string, password?: string): Promise<AuthResult> {
+  const trimmed = emailOrLogin.trim().toLowerCase();
+  
+  if (!client) {
+    return {
+      ok: false,
+      message: 'Cliente de Supabase no inicializado. Revisa tu URL y clave de Supabase.',
+    };
+  }
+
+  // 1. Intentar primero con Supabase Auth si se proporcionó contraseña y parece un correo
+  if (password && trimmed.includes('@')) {
+    try {
+      const { data, error } = await client.auth.signInWithPassword({
+        email: trimmed,
+        password,
+      });
+
+      if (!error && data.user) {
+        // Buscar el perfil extendido en la tabla usuarios
+        const { data: profile } = await client
+          .from('usuarios')
+          .select('*')
+          .or(`email.eq.${trimmed},id_usuario.eq.${data.user.id}`)
+          .maybeSingle();
+
+        return {
+          ok: true,
+          user: profile || {
+            id_usuario: data.user.id,
+            email: data.user.email,
+            nombre: data.user.user_metadata?.nombre || data.user.email?.split('@')[0] || 'Usuario',
+            rol: data.user.user_metadata?.rol || 'Administrador',
+            usuario_login: data.user.email?.split('@')[0],
+            activo: true,
+          },
+          message: 'Autenticación exitosa mediante Supabase Auth (GoTrue con sesión activa).',
+          source: 'supabase_auth',
+        };
+      }
+    } catch (authErr) {
+      console.warn('Supabase Auth error, probando perfil de base de datos:', authErr);
+    }
+  }
+
+  // 2. Comprobar contra la tabla pública 'usuarios' (para usuarios migrados desde Google Sheets/SQL)
+  try {
+    const isEmail = trimmed.includes('@');
+    const query = client.from('usuarios').select('*');
+    
+    const { data: users, error } = isEmail
+      ? await query.ilike('email', trimmed).limit(1)
+      : await query.ilike('usuario_login', trimmed).limit(1);
+
+    if (error) {
+      return {
+        ok: false,
+        message: `Error al consultar tabla de usuarios: ${error.message}`,
+      };
+    }
+
+    if (!users || users.length === 0) {
+      return {
+        ok: false,
+        message: `No se encontró ningún usuario con el identificador "${trimmed}".`,
+      };
+    }
+
+    const user = users[0];
+    if (user.activo === false) {
+      return {
+        ok: false,
+        message: 'Esta cuenta ha sido inhabilitada por un Administrador.',
+      };
+    }
+
+    return {
+      ok: true,
+      user: {
+        id_usuario: user.id_usuario || user.id,
+        nombre: user.nombre || 'Usuario',
+        email: user.email || '',
+        rol: user.rol || 'Administrador',
+        usuario_login: user.usuario_login || user.email?.split('@')[0] || '',
+        activo: user.activo !== false,
+        edificios: user.edificios || [],
+      },
+      message: 'Sesión validada exitosamente con tu registro en PostgreSQL/Supabase.',
+      source: 'database_profile',
+    };
+  } catch (err: any) {
+    return {
+      ok: false,
+      message: err?.message || 'Error al autenticar contra Supabase.',
+    };
+  }
+}
+
+/**
+ * Registra un nuevo usuario en Supabase Auth y en la tabla 'usuarios'.
+ */
+export async function registerUserInSupabase(userData: {
+  nombre: string;
+  email: string;
+  password?: string;
+  rol: string;
+  usuario_login: string;
+  edificios?: string[];
+}): Promise<{ ok: boolean; message: string; user?: any }> {
+  if (!client) return { ok: false, message: 'Supabase no conectado.' };
+
+  try {
+    let authUserId: string | null = null;
+
+    // Si se especificó contraseña, registrar también en Supabase Auth
+    if (userData.password && userData.password.length >= 6) {
+      const { data: authData, error: authError } = await client.auth.signUp({
+        email: userData.email,
+        password: userData.password,
+        options: {
+          data: {
+            nombre: userData.nombre,
+            rol: userData.rol,
+            usuario_login: userData.usuario_login,
+          },
+        },
+      });
+
+      if (!authError && authData.user) {
+        authUserId = authData.user.id;
+      }
+    }
+
+    // Insertar en la tabla 'usuarios'
+    const newId = authUserId || `USR-${Math.floor(Math.random() * 100000)}`;
+    const { data: dbData, error: dbError } = await client.from('usuarios').insert([
+      {
+        id_usuario: newId,
+        nombre: userData.nombre,
+        email: userData.email.toLowerCase(),
+        rol: userData.rol,
+        usuario_login: userData.usuario_login.toLowerCase(),
+        activo: true,
+        cambiar_password: false,
+        intentos_fallidos: 0,
+      },
+    ]).select();
+
+    if (dbError) {
+      return { ok: false, message: `Error en BD: ${dbError.message}` };
+    }
+
+    return {
+      ok: true,
+      message: 'Usuario registrado exitosamente en Supabase.',
+      user: dbData?.[0] || { ...userData, id_usuario: newId, activo: true },
+    };
+  } catch (e: any) {
+    return { ok: false, message: e?.message || 'Error al registrar usuario.' };
+  }
+}
+
+/**
+ * Actualiza los datos de un usuario en Supabase (Función exclusiva SuperAdmin)
+ */
+export async function updateUsuarioInSupabase(
+  idOrEmail: string,
+  updates: Partial<{
+    nombre: string;
+    email: string;
+    rol: string;
+    usuario_login: string;
+    activo: boolean;
+    edificios: string[];
+  }>
+): Promise<{ ok: boolean; message: string }> {
+  if (!client) return { ok: false, message: 'Supabase no conectado.' };
+
+  try {
+    const payload: any = {};
+    if (updates.nombre !== undefined) payload.nombre = updates.nombre;
+    if (updates.email !== undefined) payload.email = updates.email.toLowerCase();
+    if (updates.rol !== undefined) payload.rol = updates.rol;
+    if (updates.usuario_login !== undefined) payload.usuario_login = updates.usuario_login.toLowerCase();
+    if (updates.activo !== undefined) payload.activo = updates.activo;
+
+    // Actualizar por id_usuario o por email
+    const { error } = await client
+      .from('usuarios')
+      .update(payload)
+      .or(`id_usuario.eq.${idOrEmail},email.eq.${idOrEmail}`);
+
+    if (error) {
+      return { ok: false, message: `Error al actualizar en Supabase: ${error.message}` };
+    }
+
+    return { ok: true, message: 'Usuario actualizado correctamente en Supabase.' };
+  } catch (err: any) {
+    return { ok: false, message: err?.message || 'Error al actualizar usuario.' };
+  }
+}
+
+/**
+ * Elimina un usuario de la tabla 'usuarios' en Supabase (Función exclusiva SuperAdmin)
+ */
+export async function deleteUsuarioFromSupabase(idOrEmail: string): Promise<{ ok: boolean; message: string }> {
+  if (!client) return { ok: false, message: 'Supabase no conectado.' };
+
+  try {
+    const { error } = await client
+      .from('usuarios')
+      .delete()
+      .or(`id_usuario.eq.${idOrEmail},email.eq.${idOrEmail}`);
+
+    if (error) {
+      return { ok: false, message: `Error al eliminar en Supabase: ${error.message}` };
+    }
+
+    return { ok: true, message: 'Usuario eliminado permanentemente de Supabase.' };
+  } catch (err: any) {
+    return { ok: false, message: err?.message || 'Error al eliminar usuario.' };
+  }
+}
+
+
