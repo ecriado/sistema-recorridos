@@ -1,23 +1,26 @@
-import React, { useState } from 'react';
-import { 
-  CheckSquare, 
-  Plus, 
-  Layers, 
-  Filter, 
-  Clock, 
-  CheckCircle2, 
-  AlertTriangle, 
-  Building, 
-  User, 
-  Calendar, 
-  Camera, 
-  X, 
-  Image as ImageIcon,
-  Check,
+import React, { useState, useEffect, useMemo } from 'react';
+import {
+  CheckSquare,
+  Clock,
+  AlertCircle,
+  Plus,
+  Layers,
+  Filter,
+  CheckCircle2,
+  Building,
+  User,
+  Calendar,
+  AlertTriangle,
+  FileText,
   Search,
+  X,
+  Camera,
+  Check,
   ArrowUpDown,
-  ArrowDownWideNarrow,
-  ArrowUpNarrowWide
+  Trash2,
+  Lock,
+  ShieldCheck,
+  ShieldAlert
 } from 'lucide-react';
 import { Tarea, Edificio, Usuario, TareaPrioridad, TareaEstado } from '../../types';
 
@@ -25,8 +28,10 @@ interface TareasViewProps {
   tareas: Tarea[];
   edificios: Edificio[];
   usuarios: Usuario[];
+  currentUser?: Usuario;
   onCreateTarea: (nueva: Partial<Tarea>) => void;
   onUpdateTarea: (id: string, updates: Partial<Tarea>) => void;
+  onDeleteTarea?: (id: string) => void;
   onCreateLoteMasivo: (lote: { titulo: string; prioridad: TareaPrioridad; fecha_limite: string; instrucciones: string; edificios: string[] }) => void;
   initialSelectId?: string;
   initialSubview?: 'lista' | 'nueva' | 'lote';
@@ -39,8 +44,10 @@ export const TareasView: React.FC<TareasViewProps> = ({
   tareas,
   edificios,
   usuarios,
+  currentUser,
   onCreateTarea,
   onUpdateTarea,
+  onDeleteTarea,
   onCreateLoteMasivo,
   initialSelectId = '',
   initialSubview = 'lista',
@@ -48,6 +55,54 @@ export const TareasView: React.FC<TareasViewProps> = ({
   initialFilterEdificio = '',
   initialFilterVencidas = false,
 }) => {
+  const isSuperAdmin = currentUser?.rol === 'SuperAdmin';
+  const isSupervisor = currentUser?.rol === 'Supervisor';
+  const isAdmin = currentUser?.rol === 'Administrador';
+  const isMantenimiento = currentUser?.rol === 'Mantenimiento';
+
+  // Filter buildings accessible to current user
+  const userEdificios = useMemo(() => {
+    if (isSuperAdmin || isSupervisor || !currentUser) return edificios;
+    return edificios.filter(
+      (ed) =>
+        (currentUser.id_edificio_asignado && currentUser.id_edificio_asignado === ed.id_edificio) ||
+        (currentUser.edificio_asignado && currentUser.edificio_asignado === ed.nombre) ||
+        (currentUser.edificios && currentUser.edificios.includes(ed.id_edificio)) ||
+        (ed.id_administrador_actual && ed.id_administrador_actual === currentUser.id_usuario) ||
+        (ed.administrador_actual && ed.administrador_actual === currentUser.nombre)
+    );
+  }, [edificios, currentUser, isSuperAdmin, isSupervisor]);
+
+  const activeEdificios = userEdificios.length > 0 ? userEdificios : edificios;
+
+  // Helper to find default assigned technician/admin for a building
+  const getAssignedUserForBuilding = (bldId: string) => {
+    const bld = edificios.find((b) => b.id_edificio === bldId);
+    // Prefer Mantenimiento assigned to this building
+    const mant = usuarios.find(
+      (u) =>
+        u.rol === 'Mantenimiento' &&
+        ((u.id_edificio_asignado && u.id_edificio_asignado === bldId) ||
+          (bld && u.edificio_asignado === bld.nombre) ||
+          (u.edificios && u.edificios.includes(bldId)))
+    );
+    if (mant) return mant;
+
+    // Next check Admin assigned to this building
+    const admin = usuarios.find(
+      (u) =>
+        ((u.id_edificio_asignado && u.id_edificio_asignado === bldId) ||
+          (bld && u.edificio_asignado === bld.nombre) ||
+          (u.edificios && u.edificios.includes(bldId)) ||
+          (bld && (u.id_usuario === bld.id_administrador_actual || u.nombre === bld.administrador_actual)))
+    );
+    if (admin) return admin;
+
+    // Fallback to first maintenance user
+    const firstMant = usuarios.find((u) => u.rol === 'Mantenimiento');
+    return firstMant || usuarios[0];
+  };
+
   const [subview, setSubview] = useState<'lista' | 'nueva' | 'lote'>(initialSubview);
   const [searchTerm, setSearchTerm] = useState('');
   const [sortOrder, setSortOrder] = useState<'recientes' | 'antiguas' | 'limite_cercano'>('recientes');
@@ -55,22 +110,42 @@ export const TareasView: React.FC<TareasViewProps> = ({
   const [filterEstado, setFilterEstado] = useState(initialFilterEstado);
   const [filterPrioridad, setFilterPrioridad] = useState('');
   const [filterSoloVencidas, setFilterSoloVencidas] = useState(initialFilterVencidas);
-  const [selectedTareaId, setSelectedTareaId] = useState(initialSelectId || tareas[0]?.id_tarea || '');
+  const [selectedTareaId, setSelectedTareaId] = useState(initialSelectId || '');
+
+  // Delete modal state
+  const [deletingTarea, setDeletingTarea] = useState<Tarea | null>(null);
 
   // Resolve modal state
   const [resolvingTarea, setResolvingTarea] = useState<Tarea | null>(null);
   const [resolveComment, setResolveComment] = useState('');
   const [resolvePhoto, setResolvePhoto] = useState<string>('');
 
+  // Initial building for new task
+  const defaultInitialBuilding = activeEdificios[0]?.id_edificio || edificios[0]?.id_edificio || '';
+  const defaultUser = isMantenimiento && currentUser
+    ? currentUser
+    : getAssignedUserForBuilding(defaultInitialBuilding);
+
   // New task form state
   const [titulo, setTitulo] = useState('');
-  const [asignado, setAsignado] = useState(usuarios[3]?.email || usuarios[0]?.email || '');
-  const [edificio, setEdificio] = useState(edificios[0]?.id_edificio || '');
+  const [asignado, setAsignado] = useState(defaultUser?.email || '');
+  const [edificio, setEdificio] = useState(defaultInitialBuilding);
   const [prioridad, setPrioridad] = useState<TareaPrioridad>('Media');
   const [fechaLimite, setFechaLimite] = useState(
     new Date(Date.now() + 86400000 * 2).toISOString().slice(0, 10)
   );
   const [instrucciones, setInstrucciones] = useState('');
+
+  // Handle building change with auto-selection of assigned technician
+  const handleEdificioChange = (newBldId: string) => {
+    setEdificio(newBldId);
+    if (!isMantenimiento) {
+      const autoUser = getAssignedUserForBuilding(newBldId);
+      if (autoUser) {
+        setAsignado(autoUser.email);
+      }
+    }
+  };
 
   // Lote form state
   const [loteTitulo, setLoteTitulo] = useState('');
@@ -80,10 +155,34 @@ export const TareasView: React.FC<TareasViewProps> = ({
   );
   const [loteInstrucciones, setLoteInstrucciones] = useState('');
   const [selectedEdificiosLote, setSelectedEdificiosLote] = useState<string[]>(
-    edificios.map((e) => e.id_edificio)
+    activeEdificios.map((e) => e.id_edificio)
   );
 
-  const filteredTareas = tareas
+  // Filter tasks based on role
+  const roleFilteredTareas = useMemo(() => {
+    return tareas.filter((t) => {
+      if (isSuperAdmin || isSupervisor) return true;
+      if (isMantenimiento) {
+        // Mantenimiento can only view tasks of their assigned building
+        if (currentUser?.id_edificio_asignado && t.id_edificio === currentUser.id_edificio_asignado) return true;
+        if (currentUser?.edificio_asignado && t.edificio_nombre === currentUser.edificio_asignado) return true;
+        if (currentUser?.edificios && currentUser.edificios.includes(t.id_edificio)) return true;
+        if (t.asignado_a_email && currentUser?.email && t.asignado_a_email.toLowerCase() === currentUser.email.toLowerCase()) return true;
+        return false;
+      }
+      if (isAdmin) {
+        // Administrador can view tasks of assigned buildings
+        if (currentUser?.id_edificio_asignado && t.id_edificio === currentUser.id_edificio_asignado) return true;
+        if (currentUser?.edificio_asignado && t.edificio_nombre === currentUser.edificio_asignado) return true;
+        if (currentUser?.edificios && currentUser.edificios.includes(t.id_edificio)) return true;
+        if (t.asignado_a_email && currentUser?.email && t.asignado_a_email.toLowerCase() === currentUser.email.toLowerCase()) return true;
+        return false;
+      }
+      return true;
+    });
+  }, [tareas, currentUser, isSuperAdmin, isSupervisor, isAdmin, isMantenimiento]);
+
+  const filteredTareas = roleFilteredTareas
     .filter((t) => {
       if (filterEdificio && t.id_edificio !== filterEdificio) return false;
       if (filterEstado && t.estado_tarea !== filterEstado) return false;
@@ -117,27 +216,54 @@ export const TareasView: React.FC<TareasViewProps> = ({
         return timeA - timeB;
       }
       if (sortOrder === 'limite_cercano') {
-        const timeA = a.fecha_limite ? new Date(a.fecha_limite).getTime() : 9999999999999;
-        const timeB = b.fecha_limite ? new Date(b.fecha_limite).getTime() : 9999999999999;
-        return timeA - timeB;
+        const limA = a.fecha_limite ? new Date(a.fecha_limite).getTime() : 9999999999999;
+        const limB = b.fecha_limite ? new Date(b.fecha_limite).getTime() : 9999999999999;
+        return limA - limB;
       }
       return 0;
     });
 
-  const selectedTarea = tareas.find((t) => t.id_tarea === selectedTareaId) || filteredTareas[0];
+  const selectedTarea = filteredTareas.find((t) => t.id_tarea === selectedTareaId) || filteredTareas[0];
 
-  const handleCreateSubmit = (e: React.FormEvent) => {
+  useEffect(() => {
+    if (!selectedTareaId && filteredTareas.length > 0) {
+      setSelectedTareaId(filteredTareas[0].id_tarea);
+    }
+  }, [filteredTareas, selectedTareaId]);
+
+  // Permission to delete task:
+  // SuperAdmin & Supervisor: full delete
+  // Admin: only tasks created by him, NOT assigned by SuperAdmin or Supervisor
+  // Mantenimiento: only tasks created by him
+  const canDeleteTarea = (t: Tarea): boolean => {
+    if (isSuperAdmin || isSupervisor) return true;
+    const isAssignedBySuperior = t.creado_por_rol === 'SuperAdmin' || t.creado_por_rol === 'Supervisor';
+    if (isAdmin) {
+      if (isAssignedBySuperior) return false;
+      if (t.creado_por && currentUser?.email && t.creado_por.toLowerCase() === currentUser.email.toLowerCase()) {
+        return true;
+      }
+      return !isAssignedBySuperior;
+    }
+    if (isMantenimiento) {
+      return !!(t.creado_por && currentUser?.email && t.creado_por.toLowerCase() === currentUser.email.toLowerCase());
+    }
+    return false;
+  };
+
+  const handleSingleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!titulo.trim() || !asignado || !edificio) return;
+    if (!titulo.trim() || !edificio) return;
 
     const building = edificios.find((b) => b.id_edificio === edificio);
-    const user = usuarios.find((u) => u.email === asignado);
+    const targetEmail = isMantenimiento && currentUser ? currentUser.email : asignado;
+    const targetUser = usuarios.find((u) => u.email === targetEmail) || (isMantenimiento ? currentUser : undefined);
 
     onCreateTarea({
       titulo_tarea: titulo.trim(),
-      asignado_a_email: asignado,
-      asignado_a_nombre: user?.nombre || asignado,
-      asignado_a_rol: user?.rol || 'Mantenimiento',
+      asignado_a_email: targetEmail,
+      asignado_a_nombre: targetUser?.nombre || targetEmail,
+      asignado_a_rol: targetUser?.rol || 'Mantenimiento',
       id_edificio: edificio,
       edificio_nombre: building?.nombre,
       prioridad,
@@ -145,6 +271,8 @@ export const TareasView: React.FC<TareasViewProps> = ({
       instrucciones: instrucciones.trim(),
       tipo_origen: 'Manual',
       estado_tarea: 'Pendiente',
+      creado_por: currentUser?.email || 'admin@eazyops.gt',
+      creado_por_rol: currentUser?.rol || 'SuperAdmin',
     });
 
     setTitulo('');
@@ -192,60 +320,85 @@ export const TareasView: React.FC<TareasViewProps> = ({
       {/* Top Title & Subnav */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-[#0b1c30] tracking-tight">
-            Gestión Central de Tareas
-          </h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-2xl sm:text-3xl font-bold text-[#0b1c30] tracking-tight">
+              Gestión Central de Tareas
+            </h1>
+            {currentUser && (
+              <span className="px-2.5 py-0.5 rounded-full bg-[#e5eeff] text-[#0051d5] text-[10px] font-bold">
+                {currentUser.rol}
+              </span>
+            )}
+          </div>
           <p className="text-xs sm:text-sm text-[#64748b] mt-1">
             Control de actividades preventivas, correctivas y asignaciones operativas
           </p>
         </div>
 
-        {/* Subnav Pills */}
-        <div className="flex items-center gap-1.5 p-1 bg-[#eff4ff] rounded-xl self-start sm:self-auto border border-[#d3e4fe]">
+        <div className="flex items-center gap-2 self-start sm:self-auto">
           <button
             type="button"
             onClick={() => setSubview('lista')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+            className={`px-3 py-2 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
               subview === 'lista'
-                ? 'bg-white text-[#0051d5] shadow-sm'
-                : 'text-[#64748b] hover:text-[#0b1c30]'
+                ? 'bg-[#0051d5] text-white shadow-sm'
+                : 'bg-white border border-[#c5c6cd] text-[#0b1c30] hover:bg-[#f8f9ff]'
             }`}
           >
-            Lista de tareas
+            Ver Lista ({filteredTareas.length})
           </button>
+
           <button
             type="button"
             onClick={() => setSubview('nueva')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1 ${
+            className={`px-3 py-2 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer ${
               subview === 'nueva'
-                ? 'bg-white text-[#0051d5] shadow-sm'
-                : 'text-[#64748b] hover:text-[#0b1c30]'
+                ? 'bg-[#0051d5] text-white shadow-sm'
+                : 'bg-white border border-[#c5c6cd] text-[#0b1c30] hover:bg-[#f8f9ff]'
             }`}
           >
             <Plus className="w-3.5 h-3.5" />
-            Nueva tarea
+            + Nueva Tarea
           </button>
-          <button
-            type="button"
-            onClick={() => setSubview('lote')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1 ${
-              subview === 'lote'
-                ? 'bg-white text-[#0051d5] shadow-sm'
-                : 'text-[#64748b] hover:text-[#0b1c30]'
-            }`}
-          >
-            <Layers className="w-3.5 h-3.5" />
-            Lote masivo
-          </button>
+
+          {/* Lote Masivo: Only SuperAdmin, Supervisor and Admin */}
+          {!isMantenimiento && (
+            <button
+              type="button"
+              onClick={() => setSubview('lote')}
+              className={`px-3 py-2 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer ${
+                subview === 'lote'
+                  ? 'bg-[#0051d5] text-white shadow-sm'
+                  : 'bg-white border border-[#c5c6cd] text-[#0b1c30] hover:bg-[#f8f9ff]'
+              }`}
+            >
+              <Layers className="w-3.5 h-3.5" />
+              + Lote Masivo
+            </button>
+          )}
         </div>
       </div>
 
+      {/* SUBVIEW: NUEVA TAREA */}
       {subview === 'nueva' && (
         <div className="rounded-2xl bg-white border border-[#e5eeff] p-6 max-w-2xl shadow-sm">
-          <h2 className="text-base font-bold text-[#0b1c30] mb-4">Crear Tarea Manual</h2>
-          <form onSubmit={handleCreateSubmit} className="flex flex-col gap-4">
+          <div className="flex items-center gap-2 mb-4">
+            <CheckSquare className="w-5 h-5 text-[#0051d5]" />
+            <h2 className="text-base font-bold text-[#0b1c30]">
+              {isMantenimiento ? 'Registrar Tarea Propia' : 'Crear Nueva Tarea Individual'}
+            </h2>
+          </div>
+
+          {isMantenimiento && (
+            <div className="mb-4 p-3 rounded-xl bg-blue-50 border border-blue-200 text-xs text-blue-900 flex items-center gap-2">
+              <ShieldCheck className="w-4 h-4 text-blue-600 shrink-0" />
+              <span>Como <strong>Mantenimiento</strong>, la tarea quedará autoasignada a tu perfil y en tu edificio asignado.</span>
+            </div>
+          )}
+
+          <form onSubmit={handleSingleSubmit} className="flex flex-col gap-4">
             <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-semibold text-[#0b1c30]">Título de la Tarea</label>
+              <label className="text-xs font-semibold text-[#0b1c30]">Título de la Tarea *</label>
               <input
                 type="text"
                 required
@@ -258,33 +411,42 @@ export const TareasView: React.FC<TareasViewProps> = ({
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-semibold text-[#0b1c30]">Responsable Asignado</label>
+                <label className="text-xs font-semibold text-[#0b1c30]">Edificio Asignado *</label>
                 <select
-                  value={asignado}
-                  onChange={(e) => setAsignado(e.target.value)}
-                  className="w-full h-10 px-3 bg-[#f8f9ff] text-[#0b1c30] rounded-lg text-xs border border-[#e5eeff] focus:outline-none focus:border-[#0051d5]"
+                  value={edificio}
+                  onChange={(e) => handleEdificioChange(e.target.value)}
+                  className="w-full h-10 px-3 bg-[#f8f9ff] text-[#0b1c30] rounded-lg text-xs border border-[#e5eeff] focus:outline-none focus:border-[#0051d5] font-medium"
                 >
-                  {usuarios.map((u) => (
-                    <option key={u.email} value={u.email}>
-                      {u.nombre} ({u.rol})
+                  {activeEdificios.map((ed) => (
+                    <option key={ed.id_edificio} value={ed.id_edificio}>
+                      {ed.nombre}
                     </option>
                   ))}
                 </select>
               </div>
 
               <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-semibold text-[#0b1c30]">Edificio</label>
-                <select
-                  value={edificio}
-                  onChange={(e) => setEdificio(e.target.value)}
-                  className="w-full h-10 px-3 bg-[#f8f9ff] text-[#0b1c30] rounded-lg text-xs border border-[#e5eeff] focus:outline-none focus:border-[#0051d5]"
-                >
-                  {edificios.map((ed) => (
-                    <option key={ed.id_edificio} value={ed.id_edificio}>
-                      {ed.nombre}
-                    </option>
-                  ))}
-                </select>
+                <label className="text-xs font-semibold text-[#0b1c30]">Responsable Asignado *</label>
+                {isMantenimiento && currentUser ? (
+                  <input
+                    type="text"
+                    disabled
+                    value={`${currentUser.nombre} (${currentUser.rol})`}
+                    className="w-full h-10 px-3 bg-gray-100 text-[#64748b] rounded-lg text-xs border border-[#e5eeff] font-medium cursor-not-allowed"
+                  />
+                ) : (
+                  <select
+                    value={asignado}
+                    onChange={(e) => setAsignado(e.target.value)}
+                    className="w-full h-10 px-3 bg-[#f8f9ff] text-[#0b1c30] rounded-lg text-xs border border-[#e5eeff] focus:outline-none focus:border-[#0051d5] font-medium"
+                  >
+                    {usuarios.map((u) => (
+                      <option key={u.id_usuario || u.email} value={u.email}>
+                        {u.nombre} ({u.rol})
+                      </option>
+                    ))}
+                  </select>
+                )}
               </div>
             </div>
 
@@ -327,14 +489,14 @@ export const TareasView: React.FC<TareasViewProps> = ({
             <div className="flex items-center gap-3 pt-2">
               <button
                 type="submit"
-                className="px-5 py-2.5 rounded-lg bg-[#0051d5] text-white text-xs font-bold hover:bg-[#0041ab] transition-all shadow-sm"
+                className="px-5 py-2.5 rounded-lg bg-[#0051d5] text-white text-xs font-bold hover:bg-[#0041ab] transition-all shadow-sm cursor-pointer"
               >
                 Crear Tarea en Supabase
               </button>
               <button
                 type="button"
                 onClick={() => setSubview('lista')}
-                className="px-4 py-2.5 rounded-lg bg-white border border-[#c5c6cd] text-xs font-semibold text-[#0b1c30] hover:bg-[#f8f9ff]"
+                className="px-4 py-2.5 rounded-lg bg-white border border-[#c5c6cd] text-xs font-semibold text-[#0b1c30] hover:bg-[#f8f9ff] cursor-pointer"
               >
                 Cancelar
               </button>
@@ -343,7 +505,8 @@ export const TareasView: React.FC<TareasViewProps> = ({
         </div>
       )}
 
-      {subview === 'lote' && (
+      {/* SUBVIEW: LOTE MASIVO */}
+      {subview === 'lote' && !isMantenimiento && (
         <div className="rounded-2xl bg-white border border-[#e5eeff] p-6 max-w-2xl shadow-sm">
           <div className="flex items-center gap-2 mb-4">
             <Layers className="w-5 h-5 text-[#0051d5]" />
@@ -352,7 +515,7 @@ export const TareasView: React.FC<TareasViewProps> = ({
             </h2>
           </div>
           <p className="text-xs text-[#64748b] mb-4">
-            Distribuye una misma directriz técnica o preventiva a múltiples edificios con clave de idempotencia única.
+            Distribuye una misma directriz técnica o preventiva a múltiples edificios asignando automáticamente al personal correspondiente.
           </p>
 
           <form onSubmit={handleLoteSubmit} className="flex flex-col gap-4">
@@ -370,8 +533,8 @@ export const TareasView: React.FC<TareasViewProps> = ({
 
             <div className="flex flex-col gap-1.5">
               <label className="text-xs font-semibold text-[#0b1c30]">Edificios Destino</label>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 p-3 bg-[#f8f9ff] rounded-xl border border-[#e5eeff]">
-                {edificios.map((ed) => {
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 p-3 bg-[#f8f9ff] rounded-xl border border-[#e5eeff] max-h-48 overflow-y-auto">
+                {activeEdificios.map((ed) => {
                   const checked = selectedEdificiosLote.includes(ed.id_edificio);
                   return (
                     <label key={ed.id_edificio} className="flex items-center gap-2 text-xs text-[#0b1c30] cursor-pointer">
@@ -385,7 +548,7 @@ export const TareasView: React.FC<TareasViewProps> = ({
                             setSelectedEdificiosLote(selectedEdificiosLote.filter((id) => id !== ed.id_edificio));
                           }
                         }}
-                        className="w-4 h-4 accent-[#0051d5] rounded"
+                        className="w-4 h-4 accent-[#0051d5] rounded cursor-pointer"
                       />
                       <span className="truncate">{ed.nombre}</span>
                     </label>
@@ -431,21 +594,21 @@ export const TareasView: React.FC<TareasViewProps> = ({
             </div>
 
             <div className="p-3 bg-[#eff4ff] rounded-xl border border-[#d3e4fe] text-xs text-[#0051d5]">
-              Se generarán <strong>{selectedEdificiosLote.length}</strong> tareas independientes asignadas a los administradores responsables.
+              Se generarán <strong>{selectedEdificiosLote.length}</strong> tareas independientes asignadas a los técnicos o administradores responsables de cada edificio.
             </div>
 
             <div className="flex items-center gap-3 pt-2">
               <button
                 type="submit"
                 disabled={!selectedEdificiosLote.length || !loteTitulo.trim()}
-                className="px-5 py-2.5 rounded-lg bg-[#0051d5] text-white text-xs font-bold hover:bg-[#0041ab] transition-all shadow-sm disabled:opacity-50"
+                className="px-5 py-2.5 rounded-lg bg-[#0051d5] text-white text-xs font-bold hover:bg-[#0041ab] transition-all shadow-sm disabled:opacity-50 cursor-pointer"
               >
-                Crear Lote en PostgreSQL
+                Crear Lote en Supabase
               </button>
               <button
                 type="button"
                 onClick={() => setSubview('lista')}
-                className="px-4 py-2.5 rounded-lg bg-white border border-[#c5c6cd] text-xs font-semibold text-[#0b1c30] hover:bg-[#f8f9ff]"
+                className="px-4 py-2.5 rounded-lg bg-white border border-[#c5c6cd] text-xs font-semibold text-[#0b1c30] hover:bg-[#f8f9ff] cursor-pointer"
               >
                 Cancelar
               </button>
@@ -454,6 +617,7 @@ export const TareasView: React.FC<TareasViewProps> = ({
         </div>
       )}
 
+      {/* SUBVIEW: LISTA */}
       {subview === 'lista' && (
         <div className="flex flex-col gap-4">
           {/* Filters toolbar */}
@@ -472,7 +636,7 @@ export const TareasView: React.FC<TareasViewProps> = ({
                 <button
                   type="button"
                   onClick={() => setSearchTerm('')}
-                  className="text-xs text-[#94a3b8] hover:text-[#0b1c30]"
+                  className="text-xs text-[#94a3b8] hover:text-[#0b1c30] cursor-pointer"
                 >
                   <X className="w-3.5 h-3.5" />
                 </button>
@@ -500,9 +664,9 @@ export const TareasView: React.FC<TareasViewProps> = ({
               className="h-9 px-3 bg-[#f8f9ff] text-[#0b1c30] rounded-lg text-xs font-medium border border-[#e5eeff] focus:outline-none focus:border-[#0051d5]"
             >
               <option value="">Todos los edificios</option>
-              {edificios.map((e) => (
-                <option key={e.id_edificio} value={e.id_edificio}>
-                  {e.nombre}
+              {activeEdificios.map((ed) => (
+                <option key={ed.id_edificio} value={ed.id_edificio}>
+                  {ed.nombre}
                 </option>
               ))}
             </select>
@@ -532,113 +696,120 @@ export const TareasView: React.FC<TareasViewProps> = ({
             <button
               type="button"
               onClick={() => setFilterSoloVencidas(!filterSoloVencidas)}
-              className={`h-9 px-3 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer ${
+              className={`h-9 px-3 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
                 filterSoloVencidas
-                  ? 'bg-rose-100 text-rose-800 border border-rose-300'
-                  : 'bg-[#f8f9ff] text-[#64748b] border border-[#e5eeff] hover:text-[#ba1a1a]'
+                  ? 'bg-red-500 text-white shadow-sm'
+                  : 'bg-[#f8f9ff] text-[#64748b] border border-[#e5eeff] hover:bg-[#eff4ff]'
               }`}
             >
-              <Clock className="w-3.5 h-3.5 text-[#ba1a1a]" />
-              <span>Solo Vencidas</span>
+              <AlertTriangle className="w-3.5 h-3.5" />
+              Solo Vencidas
             </button>
-
-            {(filterEdificio || filterEstado || filterPrioridad || filterSoloVencidas || searchTerm) && (
-              <button
-                type="button"
-                onClick={() => {
-                  setFilterEdificio('');
-                  setFilterEstado('');
-                  setFilterPrioridad('');
-                  setFilterSoloVencidas(false);
-                  setSearchTerm('');
-                }}
-                className="h-9 px-2.5 rounded-lg text-xs text-[#64748b] hover:text-[#0b1c30] bg-white border border-[#e5eeff] transition-colors cursor-pointer"
-              >
-                Limpiar filtros
-              </button>
-            )}
-
-            <span className="text-xs text-[#64748b] ml-auto">
-              Mostrando {filteredTareas.length} de {tareas.length} tareas
-            </span>
           </div>
 
-          {/* Master-Detail Layout (Apps Script Style) */}
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
-            {/* Task list column (5 cols) */}
-            <div className="lg:col-span-5 flex flex-col gap-2.5 max-h-[75vh] overflow-y-auto pr-1">
-              {filteredTareas.map((t) => {
-                const isSelected = selectedTarea?.id_tarea === t.id_tarea;
-                return (
-                  <div
-                    key={t.id_tarea}
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => setSelectedTareaId(t.id_tarea)}
-                    className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer ${
-                      isSelected
-                        ? 'bg-[#eff4ff] border-[#0051d5] shadow-sm ring-1 ring-[#0051d5]/20'
-                        : 'bg-white border-[#e5eeff] hover:border-[#c5c6cd]'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between gap-2 mb-1.5">
-                      <span className="font-mono text-[11px] font-bold text-[#64748b]">
-                        {t.id_tarea}
-                      </span>
-                      <div className="flex items-center gap-1.5">
-                        <span
-                          className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                            t.prioridad === 'Alta'
-                              ? 'bg-[#ffdad6] text-[#ba1a1a]'
-                              : t.prioridad === 'Media'
-                              ? 'bg-amber-100 text-amber-800'
-                              : 'bg-emerald-100 text-emerald-800'
-                          }`}
-                        >
-                          {t.prioridad}
+          {/* Main 2-column Layout: List + Detail */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            {/* Task List */}
+            <div className="lg:col-span-5 flex flex-col gap-2.5 max-h-[680px] overflow-y-auto pr-1">
+              {filteredTareas.length === 0 ? (
+                <div className="p-8 text-center bg-white border border-[#e5eeff] rounded-2xl">
+                  <CheckSquare className="w-10 h-10 text-[#94a3b8] mx-auto mb-2" />
+                  <p className="text-xs font-semibold text-[#0b1c30]">No se encontraron tareas</p>
+                  <p className="text-[11px] text-[#64748b] mt-1">Ajuste los filtros o cree una nueva tarea.</p>
+                </div>
+              ) : (
+                filteredTareas.map((t) => {
+                  const isSelected = selectedTarea?.id_tarea === t.id_tarea;
+                  const isPastDue = t.fecha_limite && new Date(t.fecha_limite).getTime() < Date.now() && t.estado_tarea !== 'Resuelta';
+                  const isAssignedBySuperior = t.creado_por_rol === 'SuperAdmin' || t.creado_por_rol === 'Supervisor';
+
+                  return (
+                    <div
+                      key={t.id_tarea}
+                      onClick={() => setSelectedTareaId(t.id_tarea)}
+                      className={`p-4 rounded-xl border transition-all cursor-pointer text-left ${
+                        isSelected
+                          ? 'bg-[#eff4ff] border-[#0051d5] shadow-xs ring-1 ring-[#0051d5]'
+                          : 'bg-white border-[#e5eeff] hover:border-[#cbd5e1] hover:bg-[#f8f9ff]'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-2 mb-1.5">
+                        <span className="font-mono text-[11px] font-bold text-[#0051d5]">
+                          {t.id_tarea}
+                        </span>
+                        <div className="flex items-center gap-1.5">
+                          {isAssignedBySuperior && (
+                            <span className="px-1.5 py-0.5 rounded bg-purple-50 border border-purple-200 text-[10px] text-purple-700 font-bold" title="Asignada por Supervisor/SuperAdmin">
+                              Superior
+                            </span>
+                          )}
+                          <span
+                            className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                              t.prioridad === 'Alta'
+                                ? 'bg-red-100 text-red-800'
+                                : t.prioridad === 'Media'
+                                ? 'bg-amber-100 text-amber-800'
+                                : 'bg-slate-100 text-slate-800'
+                            }`}
+                          >
+                            {t.prioridad}
+                          </span>
+                        </div>
+                      </div>
+
+                      <h4 className="font-bold text-xs text-[#0b1c30] line-clamp-1 mb-1">
+                        {t.titulo_tarea}
+                      </h4>
+
+                      <div className="flex items-center justify-between text-[11px] text-[#64748b] mt-2">
+                        <span className="truncate max-w-[140px]">
+                          {t.edificio_nombre || t.id_edificio}
                         </span>
                         <span
-                          className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
+                          className={`font-semibold ${
                             t.estado_tarea === 'Resuelta'
-                              ? 'bg-[#e5eeff] text-[#069669]'
-                              : t.estado_tarea === 'En Proceso'
-                              ? 'bg-blue-100 text-blue-800'
-                              : 'bg-amber-50 text-amber-800'
+                              ? 'text-[#069669]'
+                              : isPastDue
+                              ? 'text-red-600 font-bold'
+                              : 'text-[#64748b]'
                           }`}
                         >
-                          {t.estado_tarea}
+                          {isPastDue ? 'Vencida' : t.estado_tarea}
                         </span>
                       </div>
                     </div>
-
-                    <h4 className="text-xs font-bold text-[#0b1c30] line-clamp-2 leading-snug">
-                      {t.titulo_tarea}
-                    </h4>
-
-                    <div className="flex items-center justify-between mt-2 text-[11px] text-[#64748b]">
-                      <span className="truncate max-w-[140px]">{t.asignado_a_nombre}</span>
-                      <span>{t.fecha_limite || 'Sin límite'}</span>
-                    </div>
-                  </div>
-                );
-              })}
+                  );
+                })
+              )}
             </div>
 
-            {/* Task Detail Side Panel (7 cols) */}
-            <div className="lg:col-span-7 bg-white rounded-2xl border border-[#e5eeff] p-5 shadow-sm sticky top-20">
+            {/* Task Detail Pane */}
+            <div className="lg:col-span-7">
               {selectedTarea ? (
-                <div className="flex flex-col gap-4">
-                  <div className="flex items-start justify-between gap-3">
+                <div className="rounded-2xl bg-white border border-[#e5eeff] p-6 shadow-sm flex flex-col gap-4 sticky top-6">
+                  {/* Header info */}
+                  <div className="flex items-start justify-between gap-3 pb-3 border-b border-[#e5eeff]">
                     <div>
                       <div className="flex items-center gap-2 mb-1">
-                        <span className="font-mono font-bold text-xs text-[#0051d5]">
+                        <span className="font-mono text-xs font-bold text-[#0051d5]">
                           {selectedTarea.id_tarea}
                         </span>
-                        <span className="px-2 py-0.5 rounded bg-[#eff4ff] text-[#0051d5] text-[10px] font-semibold">
-                          Origen: {selectedTarea.tipo_origen}
+                        <span
+                          className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                            selectedTarea.prioridad === 'Alta'
+                              ? 'bg-red-100 text-red-800'
+                              : 'bg-amber-100 text-amber-800'
+                          }`}
+                        >
+                          Prioridad {selectedTarea.prioridad}
                         </span>
+                        {selectedTarea.creado_por_rol && (
+                          <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 text-[10px] font-semibold">
+                            Origen: {selectedTarea.creado_por_rol}
+                          </span>
+                        )}
                       </div>
-                      <h3 className="font-bold text-base text-[#0b1c30] leading-snug">
+                      <h3 className="text-base font-bold text-[#0b1c30]">
                         {selectedTarea.titulo_tarea}
                       </h3>
                     </div>
@@ -646,7 +817,7 @@ export const TareasView: React.FC<TareasViewProps> = ({
                     <span
                       className={`px-3 py-1 rounded-full text-xs font-bold shrink-0 ${
                         selectedTarea.estado_tarea === 'Resuelta'
-                          ? 'bg-[#e5eeff] text-[#069669] border border-[#a7f3d0]'
+                          ? 'bg-emerald-100 text-emerald-800'
                           : selectedTarea.estado_tarea === 'En Proceso'
                           ? 'bg-blue-100 text-blue-800'
                           : 'bg-amber-100 text-amber-800'
@@ -655,6 +826,15 @@ export const TareasView: React.FC<TareasViewProps> = ({
                       {selectedTarea.estado_tarea}
                     </span>
                   </div>
+
+                  {/* Notice if assigned by superior and user is admin/maintenance */}
+                  {(isAdmin || isMantenimiento) &&
+                    (selectedTarea.creado_por_rol === 'SuperAdmin' || selectedTarea.creado_por_rol === 'Supervisor') && (
+                      <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-900 flex items-center gap-2">
+                        <ShieldAlert className="w-4 h-4 text-amber-600 shrink-0" />
+                        <span>Esta tarea fue asignada por la superioridad (SuperAdmin/Supervisor). No puede ser eliminada y requiere evidencia formal al resolverse.</span>
+                      </div>
+                    )}
 
                   {/* Metadata Grid */}
                   <div className="grid grid-cols-2 gap-3 p-3.5 bg-[#f8f9ff] rounded-xl border border-[#e5eeff] text-xs">
@@ -672,7 +852,7 @@ export const TareasView: React.FC<TareasViewProps> = ({
                         Responsable
                       </span>
                       <span className="font-semibold text-[#0b1c30]">
-                        {selectedTarea.asignado_a_nombre} ({selectedTarea.departamento || 'Técnico'})
+                        {selectedTarea.asignado_a_nombre || selectedTarea.asignado_a_email}
                       </span>
                     </div>
 
@@ -681,7 +861,7 @@ export const TareasView: React.FC<TareasViewProps> = ({
                         Fecha Creación
                       </span>
                       <span className="font-semibold text-[#0b1c30]">
-                        {selectedTarea.fecha_creacion}
+                        {selectedTarea.fecha_creacion || 'Reciente'}
                       </span>
                     </div>
 
@@ -690,7 +870,7 @@ export const TareasView: React.FC<TareasViewProps> = ({
                         Fecha Límite
                       </span>
                       <span className="font-semibold text-[#0b1c30]">
-                        {selectedTarea.fecha_limite || 'Sin fecha'}
+                        {selectedTarea.fecha_limite || 'Sin fecha límite'}
                       </span>
                     </div>
                   </div>
@@ -729,37 +909,54 @@ export const TareasView: React.FC<TareasViewProps> = ({
                   )}
 
                   {/* Action Buttons */}
-                  <div className="pt-3 border-t border-[#e5eeff] flex items-center gap-3">
-                    {selectedTarea.estado_tarea === 'Pendiente' && (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          onUpdateTarea(selectedTarea.id_tarea, {
-                            estado_tarea: 'En Proceso',
-                            fecha_inicio: new Date().toISOString(),
-                          })
-                        }
-                        className="px-4 py-2 rounded-lg bg-[#0051d5] text-white text-xs font-bold hover:bg-[#0041ab] transition-all shadow-sm"
-                      >
-                        Iniciar Tarea
-                      </button>
-                    )}
+                  <div className="pt-3 border-t border-[#e5eeff] flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2">
+                      {selectedTarea.estado_tarea === 'Pendiente' && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onUpdateTarea(selectedTarea.id_tarea, {
+                              estado_tarea: 'En Proceso',
+                              fecha_inicio: new Date().toISOString(),
+                            })
+                          }
+                          className="px-4 py-2 rounded-lg bg-[#0051d5] text-white text-xs font-bold hover:bg-[#0041ab] transition-all shadow-sm cursor-pointer"
+                        >
+                          Iniciar Tarea
+                        </button>
+                      )}
 
-                    {selectedTarea.estado_tarea === 'En Proceso' && (
+                      {selectedTarea.estado_tarea === 'En Proceso' && (
+                        <button
+                          type="button"
+                          onClick={() => setResolvingTarea(selectedTarea)}
+                          className="px-4 py-2 rounded-lg bg-[#069669] text-white text-xs font-bold hover:bg-[#057a55] transition-all shadow-sm flex items-center gap-1.5 cursor-pointer"
+                        >
+                          <Check className="w-4 h-4" />
+                          Resolver Tarea (Con Evidencia)
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Delete action if permitted */}
+                    {onDeleteTarea && canDeleteTarea(selectedTarea) && (
                       <button
                         type="button"
-                        onClick={() => setResolvingTarea(selectedTarea)}
-                        className="px-4 py-2 rounded-lg bg-[#069669] text-white text-xs font-bold hover:bg-[#057a55] transition-all shadow-sm flex items-center gap-1.5"
+                        onClick={() => setDeletingTarea(selectedTarea)}
+                        className="px-3 py-2 rounded-lg bg-red-50 text-red-600 hover:bg-red-100 text-xs font-semibold flex items-center gap-1 transition-colors cursor-pointer"
+                        title="Eliminar tarea"
                       >
-                        <Check className="w-4 h-4" />
-                        Resolver Tarea (Con Evidencia)
+                        <Trash2 className="w-3.5 h-3.5" />
+                        Eliminar
                       </button>
                     )}
                   </div>
                 </div>
               ) : (
-                <div className="p-8 text-center text-xs text-[#64748b]">
-                  Seleccione una tarea de la lista para consultar su detalle.
+                <div className="p-12 text-center bg-white border border-[#e5eeff] rounded-2xl">
+                  <FileText className="w-12 h-12 text-[#94a3b8] mx-auto mb-2" />
+                  <p className="text-xs font-semibold text-[#0b1c30]">Seleccione una tarea</p>
+                  <p className="text-[11px] text-[#64748b]">Haga clic en la lista para ver el detalle de la tarea.</p>
                 </div>
               )}
             </div>
@@ -767,39 +964,42 @@ export const TareasView: React.FC<TareasViewProps> = ({
         </div>
       )}
 
-      {/* Resolve Task Modal */}
+      {/* MODAL: RESOLVER TAREA */}
       {resolvingTarea && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#111c2e]/70 backdrop-blur-sm p-4 overflow-y-auto animate-in fade-in duration-200">
           <div className="relative w-full max-w-lg rounded-2xl bg-white shadow-2xl overflow-hidden border border-[#e5eeff]">
             <div className="bg-[#111c2e] text-white p-5 flex items-center justify-between">
               <div className="flex items-center gap-2.5">
                 <CheckCircle2 className="w-5 h-5 text-[#85f8c4]" />
-                <h3 className="font-bold text-base text-white">
-                  Cierre de Tarea Técnica
-                </h3>
+                <h3 className="font-bold text-base text-white">Resolver y Cerrar Tarea</h3>
               </div>
               <button
                 type="button"
                 onClick={() => setResolvingTarea(null)}
-                className="w-8 h-8 rounded-lg bg-white/10 hover:bg-white/20 flex items-center justify-center text-white"
+                className="w-8 h-8 rounded-lg bg-white/10 hover:bg-white/20 flex items-center justify-center text-white cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
             <div className="p-6 flex flex-col gap-4">
-              <div className="p-3 rounded-lg bg-[#eff4ff] text-xs text-[#0b1c30]">
-                <strong>{resolvingTarea.id_tarea}</strong>: {resolvingTarea.titulo_tarea}
+              <div>
+                <span className="text-[11px] font-mono text-[#0051d5] font-bold">
+                  {resolvingTarea.id_tarea}
+                </span>
+                <h4 className="font-bold text-sm text-[#0b1c30] mt-0.5">
+                  {resolvingTarea.titulo_tarea}
+                </h4>
               </div>
 
               <div className="flex flex-col gap-1.5">
                 <label className="text-xs font-semibold text-[#0b1c30]">
-                  Comentario de Cierre y Trabajos Realizados *
+                  Dictamen u Observaciones de Cierre *
                 </label>
                 <textarea
                   rows={3}
                   required
-                  placeholder="Describa el reemplazo de piezas, calibración efectuada o validación operativa..."
+                  placeholder="Detalle los trabajos efectuados, pruebas de funcionamiento y condiciones en que queda el equipo o área..."
                   value={resolveComment}
                   onChange={(e) => setResolveComment(e.target.value)}
                   className="w-full p-3 bg-[#f8f9ff] text-[#0b1c30] rounded-lg text-xs border border-[#e5eeff] focus:outline-none focus:border-[#0051d5] resize-none"
@@ -808,32 +1008,27 @@ export const TareasView: React.FC<TareasViewProps> = ({
 
               <div className="flex flex-col gap-1.5">
                 <label className="text-xs font-semibold text-[#0b1c30]">
-                  Fotografía de Evidencia de Cierre *
+                  URL de Evidencia Fotográfica (Opcional)
                 </label>
-                <div className="p-4 rounded-xl border border-dashed border-[#c5c6cd] bg-[#f8f9ff] flex flex-col items-center justify-center gap-2 text-center">
-                  <Camera className="w-6 h-6 text-[#0051d5]" />
-                  <span className="text-xs font-medium text-[#0b1c30]">
-                    Subir fotografía de evidencia a Supabase Storage
-                  </span>
+                <div className="flex items-center gap-2">
                   <input
-                    type="file"
-                    accept="image/*"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (file) {
-                        const url = URL.createObjectURL(file);
-                        setResolvePhoto(url);
-                      }
-                    }}
-                    className="text-xs cursor-pointer text-[#64748b]"
+                    type="url"
+                    placeholder="https://images.unsplash.com/..."
+                    value={resolvePhoto}
+                    onChange={(e) => setResolvePhoto(e.target.value)}
+                    className="w-full h-10 px-3 bg-[#f8f9ff] text-[#0b1c30] rounded-lg text-xs border border-[#e5eeff] focus:outline-none focus:border-[#0051d5]"
                   />
-                  {resolvePhoto && (
-                    <img
-                      src={resolvePhoto}
-                      alt="Preview"
-                      className="w-32 h-24 object-cover rounded-lg border mt-2"
-                    />
-                  )}
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setResolvePhoto(
+                        'https://images.unsplash.com/photo-1581092160607-ee22621dd758?auto=format&fit=crop&w=800&q=80'
+                      )
+                    }
+                    className="px-3 h-10 rounded-lg bg-[#eff4ff] text-[#0051d5] text-xs font-semibold hover:bg-[#d3e4fe] shrink-0 flex items-center gap-1 cursor-pointer"
+                  >
+                    <Camera className="w-3.5 h-3.5" /> Demo
+                  </button>
                 </div>
               </div>
 
@@ -841,7 +1036,7 @@ export const TareasView: React.FC<TareasViewProps> = ({
                 <button
                   type="button"
                   onClick={() => setResolvingTarea(null)}
-                  className="px-4 py-2 rounded-lg bg-white border border-[#c5c6cd] text-xs font-semibold text-[#0b1c30] hover:bg-[#f8f9ff]"
+                  className="px-4 py-2.5 rounded-lg bg-white border border-[#c5c6cd] text-xs font-semibold text-[#0b1c30] hover:bg-[#f8f9ff] cursor-pointer"
                 >
                   Cancelar
                 </button>
@@ -849,9 +1044,64 @@ export const TareasView: React.FC<TareasViewProps> = ({
                   type="button"
                   disabled={!resolveComment.trim()}
                   onClick={handleConfirmResolve}
-                  className="px-5 py-2.5 rounded-lg bg-[#069669] text-white text-xs font-bold hover:bg-[#057a55] transition-all shadow-sm disabled:opacity-50"
+                  className="px-5 py-2.5 rounded-lg bg-[#069669] hover:bg-[#057a55] text-white text-xs font-bold transition-all shadow-sm disabled:opacity-50 flex items-center gap-1.5 cursor-pointer"
                 >
-                  Guardar y Cerrar en PostgreSQL
+                  <Check className="w-4 h-4" />
+                  Confirmar Resolución
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: CONFIRMAR ELIMINAR TAREA */}
+      {deletingTarea && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#111c2e]/70 backdrop-blur-sm p-4 overflow-y-auto animate-in fade-in duration-200">
+          <div className="relative w-full max-w-md rounded-2xl bg-white shadow-2xl overflow-hidden border border-red-200">
+            <div className="bg-red-600 text-white p-5 flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <AlertTriangle className="w-5 h-5 text-white" />
+                <h3 className="font-bold text-base text-white">Eliminar Tarea</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDeletingTarea(null)}
+                className="w-8 h-8 rounded-lg bg-white/10 hover:bg-white/20 flex items-center justify-center text-white cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-6 flex flex-col gap-4 text-xs text-[#0b1c30]">
+              <p>
+                ¿Estás seguro de que deseas eliminar permanentemente la tarea <strong>{deletingTarea.id_tarea}</strong>?
+              </p>
+
+              <div className="p-3.5 rounded-xl bg-red-50 border border-red-200">
+                <div className="font-bold text-sm text-red-950">{deletingTarea.titulo_tarea}</div>
+                <div className="text-red-700 text-[11px] mt-1">
+                  Edificio: {deletingTarea.edificio_nombre || deletingTarea.id_edificio}
+                </div>
+              </div>
+
+              <div className="pt-3 border-t border-[#e5eeff] flex items-center justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setDeletingTarea(null)}
+                  className="px-4 py-2 rounded-lg bg-white border border-[#c5c6cd] text-xs font-semibold text-[#0b1c30] hover:bg-[#f8f9ff] cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (onDeleteTarea) onDeleteTarea(deletingTarea.id_tarea);
+                    setDeletingTarea(null);
+                  }}
+                  className="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white text-xs font-bold transition-all shadow-sm cursor-pointer"
+                >
+                  Sí, Eliminar
                 </button>
               </div>
             </div>

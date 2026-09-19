@@ -8,6 +8,8 @@ export interface Usuario {
   usuario_login: string;
   activo: boolean;
   edificios?: string[];
+  id_edificio_asignado?: string;
+  edificio_asignado?: string;
   id_administrador?: string;
 }
 
@@ -116,6 +118,7 @@ export interface Tarea {
   fecha_inicio?: string;
   fecha_resolucion?: string;
   creado_por: string;
+  creado_por_rol?: string;
   estado_tarea: TareaEstado;
   observaciones_cierre?: string;
   foto_evidencia_cierre?: string;

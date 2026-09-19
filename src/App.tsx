@@ -35,7 +35,10 @@ import {
   changeUserPasswordInSupabase,
   createEdificioInSupabase,
   updateEdificioInSupabase,
-  deleteEdificioFromSupabase
+  deleteEdificioFromSupabase,
+  createRecorridoInSupabase,
+  updateRecorridoInSupabase,
+  deleteRecorridoFromSupabase
 } from './lib/supabaseClient';
 
 import { DashboardView } from './components/views/DashboardView';
@@ -121,6 +124,7 @@ export default function App() {
   });
   const [isSyncingSupabase, setIsSyncingSupabase] = useState<boolean>(false);
   const [supabaseLoaded, setSupabaseLoaded] = useState<boolean>(false);
+  const [isChangePasswordModalOpen, setIsChangePasswordModalOpen] = useState<boolean>(false);
 
   const handleLogout = () => {
     localStorage.removeItem('eazyops_authenticated');
@@ -275,7 +279,7 @@ export default function App() {
   };
 
   // Entity Handlers
-  const handleCreateRecorrido = (nuevo: Partial<Recorrido>) => {
+  const handleCreateRecorrido = async (nuevo: Partial<Recorrido>) => {
     const nextId = `REC-2024-0${recorridos.length + 90}`;
     const item: Recorrido = {
       id_recorrido: nextId,
@@ -285,17 +289,60 @@ export default function App() {
       fecha_programada: nuevo.fecha_programada || new Date().toISOString(),
       fecha_cierre_programada: nuevo.fecha_cierre_programada,
       cierre_automatico: nuevo.cierre_automatico ?? true,
-      inspector_email: nuevo.inspector_email || 'carlos.mendez@eazyops.gt',
-      inspector_nombre: nuevo.inspector_nombre || 'Ing. Carlos Mendez',
+      inspector_email: nuevo.inspector_email || currentUser?.email || 'carlos.mendez@eazyops.gt',
+      inspector_nombre: nuevo.inspector_nombre || currentUser?.nombre || 'Ing. Carlos Mendez',
       estado: 'Programado',
       observaciones: nuevo.observaciones,
-      creado_por: 'carlos.mendez@eazyops.gt',
+      creado_por: currentUser?.email || 'admin@eazyops.gt',
       checkpoints_count: 8,
       hallazgos_count: 0,
     };
 
     setRecorridos([item, ...recorridos]);
+    try {
+      await createRecorridoInSupabase(item);
+    } catch (e) {
+      console.warn('Error al persistir nuevo recorrido en Supabase:', e);
+    }
     showToast(`Recorrido ${nextId} registrado en Supabase.`);
+  };
+
+  const handleUpdateRecorrido = async (id: string, updates: Partial<Recorrido>) => {
+    const target = recorridos.find((r) => r.id_recorrido === id);
+    if (!target) return;
+    const canEdit = isSuperAdmin || (currentUser?.email && target.creado_por?.toLowerCase() === currentUser.email.toLowerCase());
+    if (!canEdit) {
+      showToast('Permisos insuficientes: Solo SuperAdmin o el creador del recorrido pueden editarlo.');
+      return;
+    }
+
+    setRecorridos((prev) =>
+      prev.map((r) => (r.id_recorrido === id ? { ...r, ...updates } : r))
+    );
+    try {
+      await updateRecorridoInSupabase(id, updates);
+    } catch (e) {
+      console.warn('Error al actualizar recorrido en Supabase:', e);
+    }
+    showToast(`Recorrido ${id} actualizado correctamente.`);
+  };
+
+  const handleDeleteRecorrido = async (id: string) => {
+    const target = recorridos.find((r) => r.id_recorrido === id);
+    if (!target) return;
+    const canDelete = isSuperAdmin || (currentUser?.email && target.creado_por?.toLowerCase() === currentUser.email.toLowerCase());
+    if (!canDelete) {
+      showToast('Permisos insuficientes: Solo SuperAdmin o el creador del recorrido pueden eliminarlo.');
+      return;
+    }
+
+    setRecorridos((prev) => prev.filter((r) => r.id_recorrido !== id));
+    try {
+      await deleteRecorridoFromSupabase(id);
+    } catch (e) {
+      console.warn('Error al eliminar recorrido de Supabase:', e);
+    }
+    showToast(`Recorrido ${id} eliminado correctamente.`);
   };
 
   const handleCreateTarea = (nueva: Partial<Tarea>) => {
@@ -313,7 +360,8 @@ export default function App() {
       prioridad: nueva.prioridad || 'Media',
       fecha_creacion: new Date().toISOString().slice(0, 19).replace('T', ' '),
       fecha_limite: nueva.fecha_limite,
-      creado_por: 'carlos.mendez@eazyops.gt',
+      creado_por: nueva.creado_por || currentUser?.email || 'admin@eazyops.gt',
+      creado_por_rol: nueva.creado_por_rol || currentUser?.rol || 'SuperAdmin',
       estado_tarea: 'Pendiente',
     };
 
@@ -326,6 +374,11 @@ export default function App() {
       prev.map((t) => (t.id_tarea === id ? { ...t, ...updates } : t))
     );
     showToast(`Tarea ${id} actualizada.`);
+  };
+
+  const handleDeleteTarea = (id: string) => {
+    setTareas((prev) => prev.filter((t) => t.id_tarea !== id));
+    showToast(`Tarea ${id} eliminada correctamente.`);
   };
 
   const handleCreateLoteMasivo = (lote: {
@@ -677,6 +730,8 @@ export default function App() {
           usuarios: usuarios.length,
         }}
         onLogout={handleLogout}
+        isChangePasswordOpen={isChangePasswordModalOpen}
+        onCloseChangePassword={() => setIsChangePasswordModalOpen(false)}
       />
 
       {/* Fixed Sidebar */}
@@ -690,8 +745,10 @@ export default function App() {
           }
         }}
         isSuperAdmin={isSuperAdmin}
+        currentUser={currentUser}
         userRole={currentUser?.rol || 'Administrador'}
         onLogout={handleLogout}
+        onOpenChangePassword={() => setIsChangePasswordModalOpen(true)}
       />
 
       {/* Main Content Area */}
@@ -737,6 +794,7 @@ export default function App() {
               recorridos={recorridos}
               edificios={edificios}
               usuarios={usuarios}
+              currentUser={currentUser}
               initialFilterStatus={recorridosFilterStatus}
               onOpenRecorrido={(rec) => {
                 setActiveRecorrido(rec);
@@ -747,6 +805,8 @@ export default function App() {
                 }
               }}
               onCreateRecorrido={handleCreateRecorrido}
+              onUpdateRecorrido={handleUpdateRecorrido}
+              onDeleteRecorrido={handleDeleteRecorrido}
             />
           )}
 
@@ -991,8 +1051,10 @@ export default function App() {
               tareas={tareas}
               edificios={edificios}
               usuarios={usuarios}
+              currentUser={currentUser}
               onCreateTarea={handleCreateTarea}
               onUpdateTarea={handleUpdateTarea}
+              onDeleteTarea={handleDeleteTarea}
               onCreateLoteMasivo={handleCreateLoteMasivo}
               initialFilterEstado={tareasFilterEstado}
               initialFilterEdificio={tareasFilterEdificio}
@@ -1007,6 +1069,7 @@ export default function App() {
               recorridosProgramados={recorridosProgramados}
               edificios={edificios}
               usuarios={usuarios}
+              currentUser={currentUser}
               onCreateAutomatizacion={handleCreateAutomatizacion}
               onToggleActive={handleToggleAutoActive}
               onDelete={handleDeleteAuto}
@@ -1030,6 +1093,7 @@ export default function App() {
             <EdificiosView
               edificios={edificios}
               usuarios={usuarios}
+              currentUser={currentUser}
               isSuperAdmin={isSuperAdmin}
               onCreateEdificio={handleCreateEdificio}
               onUpdateEdificio={handleUpdateEdificio}

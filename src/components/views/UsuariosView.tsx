@@ -48,6 +48,7 @@ export const UsuariosView: React.FC<UsuariosViewProps> = ({
   const [rol, setRol] = useState<UserRole>('Administrador');
   const [login, setLogin] = useState('');
   const [selectedEdificios, setSelectedEdificios] = useState<string[]>([]);
+  const [selectedEdificioAsignado, setSelectedEdificioAsignado] = useState('');
 
   // Password Change Modal (SuperAdmin)
   const [passwordUser, setPasswordUser] = useState<Usuario | null>(null);
@@ -65,6 +66,7 @@ export const UsuariosView: React.FC<UsuariosViewProps> = ({
   const [editLogin, setEditLogin] = useState('');
   const [editActivo, setEditActivo] = useState(true);
   const [editEdificios, setEditEdificios] = useState<string[]>([]);
+  const [editIdEdificioAsignado, setEditIdEdificioAsignado] = useState('');
 
   // Delete Confirmation Modal
   const [deletingUser, setDeletingUser] = useState<Usuario | null>(null);
@@ -78,6 +80,8 @@ export const UsuariosView: React.FC<UsuariosViewProps> = ({
     setEmail('');
     setLogin('');
     setRol('Administrador');
+    const defaultBld = edificios[0]?.id_edificio || '';
+    setSelectedEdificioAsignado(defaultBld);
     setSelectedEdificios(edificios.slice(0, 3).map((e) => e.id_edificio));
     setIsModalOpen(true);
   };
@@ -86,13 +90,22 @@ export const UsuariosView: React.FC<UsuariosViewProps> = ({
     e.preventDefault();
     if (!nombre.trim() || !email.trim() || !login.trim()) return;
 
+    const assignedBld = edificios.find((ed) => ed.id_edificio === selectedEdificioAsignado);
+    const assignedEdificiosList = rol === 'Supervisor'
+      ? edificios.map((ed) => ed.id_edificio)
+      : (rol === 'Administrador' || rol === 'Mantenimiento')
+      ? (selectedEdificioAsignado ? [selectedEdificioAsignado] : [edificios[0]?.id_edificio])
+      : (selectedEdificios.length > 0 ? selectedEdificios : edificios.map((e) => e.id_edificio));
+
     onCreateUsuario({
       nombre: nombre.trim(),
       email: email.trim().toLowerCase(),
       rol,
       usuario_login: login.trim().toLowerCase(),
       activo: true,
-      edificios: selectedEdificios.length > 0 ? selectedEdificios : edificios.map((e) => e.id_edificio),
+      id_edificio_asignado: (rol === 'Administrador' || rol === 'Mantenimiento') ? selectedEdificioAsignado : undefined,
+      edificio_asignado: (rol === 'Administrador' || rol === 'Mantenimiento') ? assignedBld?.nombre : undefined,
+      edificios: assignedEdificiosList,
     });
 
     setIsModalOpen(false);
@@ -106,6 +119,7 @@ export const UsuariosView: React.FC<UsuariosViewProps> = ({
     setEditLogin(u.usuario_login || u.email.split('@')[0]);
     setEditActivo(u.activo !== false);
     setEditEdificios(u.edificios || []);
+    setEditIdEdificioAsignado(u.id_edificio_asignado || (u.edificios && u.edificios[0]) || edificios[0]?.id_edificio || '');
   };
 
   const handleEditSubmit = (e: React.FormEvent) => {
@@ -113,13 +127,22 @@ export const UsuariosView: React.FC<UsuariosViewProps> = ({
     if (!editingUser) return;
     if (!editNombre.trim() || !editEmail.trim()) return;
 
+    const assignedBld = edificios.find((ed) => ed.id_edificio === editIdEdificioAsignado);
+    const assignedEdificiosList = editRol === 'Supervisor'
+      ? edificios.map((ed) => ed.id_edificio)
+      : (editRol === 'Administrador' || editRol === 'Mantenimiento')
+      ? (editIdEdificioAsignado ? [editIdEdificioAsignado] : [edificios[0]?.id_edificio])
+      : editEdificios;
+
     onUpdateUsuario(editingUser.id_usuario, {
       nombre: editNombre.trim(),
       email: editEmail.trim().toLowerCase(),
       rol: editRol,
       usuario_login: editLogin.trim().toLowerCase(),
       activo: editActivo,
-      edificios: editEdificios,
+      id_edificio_asignado: (editRol === 'Administrador' || editRol === 'Mantenimiento') ? editIdEdificioAsignado : undefined,
+      edificio_asignado: (editRol === 'Administrador' || editRol === 'Mantenimiento') ? assignedBld?.nombre : undefined,
+      edificios: assignedEdificiosList,
     });
 
     setEditingUser(null);
@@ -282,11 +305,15 @@ export const UsuariosView: React.FC<UsuariosViewProps> = ({
                   </div>
 
                   <div className="flex items-center gap-2">
-                    <Building className="w-3.5 h-3.5 text-[#64748b] shrink-0" />
-                    <span>
-                      {u.edificios && u.edificios.length > 0 
-                        ? `${u.edificios.length} edificio(s) asignado(s)` 
-                        : 'Todos los edificios'}
+                    <Building className="w-3.5 h-3.5 text-[#0051d5] shrink-0" />
+                    <span className="truncate font-medium text-[#0b1c30]">
+                      {u.rol === 'Supervisor' || u.rol === 'SuperAdmin'
+                        ? 'Acceso Global (Todos los edificios)'
+                        : u.edificio_asignado
+                        ? `Edificio: ${u.edificio_asignado}`
+                        : u.edificios && u.edificios.length > 0
+                        ? `${u.edificios.length} edificio(s) asignado(s)`
+                        : 'Sin edificio asignado'}
                     </span>
                   </div>
                 </div>
@@ -440,6 +467,39 @@ export const UsuariosView: React.FC<UsuariosViewProps> = ({
                 </select>
               </div>
 
+              {/* Asignación obligatoria de edificio para Administrador y Mantenimiento */}
+              {(rol === 'Administrador' || rol === 'Mantenimiento') && (
+                <div className="flex flex-col gap-1.5 p-3 rounded-xl bg-[#f8f9ff] border border-[#d3e4fe]">
+                  <label className="text-xs font-bold text-[#0b1c30] flex items-center gap-1.5">
+                    <Building className="w-4 h-4 text-[#0051d5]" />
+                    <span>Edificio Asignado (Obligatorio para {rol}) *</span>
+                  </label>
+                  <p className="text-[11px] text-[#64748b]">
+                    Este usuario solo podrá operar dentro del edificio asignado.
+                  </p>
+                  <select
+                    required
+                    value={selectedEdificioAsignado}
+                    onChange={(e) => setSelectedEdificioAsignado(e.target.value)}
+                    className="w-full h-10 px-3 bg-white text-[#0b1c30] rounded-lg text-xs border border-[#d3e4fe] focus:outline-none focus:border-[#0051d5] font-medium"
+                  >
+                    {edificios.map((ed) => (
+                      <option key={ed.id_edificio} value={ed.id_edificio}>
+                        {ed.nombre} ({ed.id_edificio})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* Supervisor aviso de acceso global */}
+              {rol === 'Supervisor' && (
+                <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-900 flex items-center gap-2">
+                  <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>Por defecto, el rol <strong>Supervisor</strong> cuenta con acceso global a todos los edificios y no requiere asignación fija.</span>
+                </div>
+              )}
+
               <div className="pt-3 border-t border-[#e5eeff] flex items-center justify-end gap-3">
                 <button
                   type="button"
@@ -547,54 +607,84 @@ export const UsuariosView: React.FC<UsuariosViewProps> = ({
                 </div>
               </div>
 
-              {/* Selector de Edificios Asignados */}
-              <div className="flex flex-col gap-1.5">
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-semibold text-[#0b1c30]">
-                    Edificios Asignados ({editEdificios.length} seleccionados)
+              {/* Selector de Edificio Asignado para Administrador y Mantenimiento */}
+              {(editRol === 'Administrador' || editRol === 'Mantenimiento') ? (
+                <div className="flex flex-col gap-1.5 p-3 rounded-xl bg-[#f8f9ff] border border-[#d3e4fe]">
+                  <label className="text-xs font-bold text-[#0b1c30] flex items-center gap-1.5">
+                    <Building className="w-4 h-4 text-[#0051d5]" />
+                    <span>Edificio Asignado (Obligatorio para {editRol}) *</span>
                   </label>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (editEdificios.length === edificios.length) {
-                        setEditEdificios([]);
-                      } else {
-                        setEditEdificios(edificios.map((e) => e.id_edificio));
-                      }
-                    }}
-                    className="text-[11px] text-[#0051d5] hover:underline font-semibold"
+                  <p className="text-[11px] text-[#64748b]">
+                    Este usuario solo operará en este edificio asignado.
+                  </p>
+                  <select
+                    required
+                    value={editIdEdificioAsignado}
+                    onChange={(e) => setEditIdEdificioAsignado(e.target.value)}
+                    className="w-full h-10 px-3 bg-white text-[#0b1c30] rounded-lg text-xs border border-[#d3e4fe] focus:outline-none focus:border-[#0051d5] font-medium"
                   >
-                    {editEdificios.length === edificios.length ? 'Deseleccionar todos' : 'Asignar todos'}
-                  </button>
+                    {edificios.map((ed) => (
+                      <option key={ed.id_edificio} value={ed.id_edificio}>
+                        {ed.nombre} ({ed.id_edificio})
+                      </option>
+                    ))}
+                  </select>
                 </div>
+              ) : editRol === 'Supervisor' ? (
+                <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-900 flex items-center gap-2">
+                  <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>El rol <strong>Supervisor</strong> tiene acceso global asignado a todos los edificios.</span>
+                </div>
+              ) : (
+                /* Selector múltiple para SuperAdmin */
+                <div className="flex flex-col gap-1.5">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-semibold text-[#0b1c30]">
+                      Edificios Asignados ({editEdificios.length} seleccionados)
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (editEdificios.length === edificios.length) {
+                          setEditEdificios([]);
+                        } else {
+                          setEditEdificios(edificios.map((e) => e.id_edificio));
+                        }
+                      }}
+                      className="text-[11px] text-[#0051d5] hover:underline font-semibold"
+                    >
+                      {editEdificios.length === edificios.length ? 'Deseleccionar todos' : 'Asignar todos'}
+                    </button>
+                  </div>
 
-                <div className="max-h-36 overflow-y-auto border border-[#d3e4fe] rounded-xl p-2 bg-[#f8f9ff] flex flex-col gap-1.5">
-                  {edificios.map((ed) => {
-                    const isChecked = editEdificios.includes(ed.id_edificio);
-                    return (
-                      <label
-                        key={ed.id_edificio}
-                        className="flex items-center gap-2 p-1.5 rounded-lg hover:bg-white text-xs text-[#0b1c30] cursor-pointer transition-colors"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={isChecked}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setEditEdificios([...editEdificios, ed.id_edificio]);
-                            } else {
-                              setEditEdificios(editEdificios.filter((id) => id !== ed.id_edificio));
-                            }
-                          }}
-                          className="rounded text-[#0051d5] focus:ring-[#0051d5]"
-                        />
-                        <span className="font-medium">{ed.nombre}</span>
-                        <span className="text-[10px] text-[#64748b] ml-auto">{ed.id_edificio}</span>
-                      </label>
-                    );
-                  })}
+                  <div className="max-h-36 overflow-y-auto border border-[#d3e4fe] rounded-xl p-2 bg-[#f8f9ff] flex flex-col gap-1.5">
+                    {edificios.map((ed) => {
+                      const isChecked = editEdificios.includes(ed.id_edificio);
+                      return (
+                        <label
+                          key={ed.id_edificio}
+                          className="flex items-center gap-2 p-1.5 rounded-lg hover:bg-white text-xs text-[#0b1c30] cursor-pointer transition-colors"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setEditEdificios([...editEdificios, ed.id_edificio]);
+                              } else {
+                                setEditEdificios(editEdificios.filter((id) => id !== ed.id_edificio));
+                              }
+                            }}
+                            className="rounded text-[#0051d5] focus:ring-[#0051d5]"
+                          />
+                          <span className="font-medium">{ed.nombre}</span>
+                          <span className="text-[10px] text-[#64748b] ml-auto">{ed.id_edificio}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
+              )}
 
               <div className="pt-3 border-t border-[#e5eeff] flex items-center justify-end gap-3">
                 <button

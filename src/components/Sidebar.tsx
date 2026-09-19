@@ -9,9 +9,11 @@ import {
   Users,
   Database,
   ShieldCheck,
-  LogOut
+  LogOut,
+  KeyRound,
+  User as UserIcon
 } from 'lucide-react';
-import { NavScreen, UserRole } from '../types';
+import { NavScreen, UserRole, Usuario } from '../types';
 
 interface SidebarProps {
   currentScreen: NavScreen;
@@ -19,8 +21,10 @@ interface SidebarProps {
   pendingTasksCount?: number;
   onOpenMigrationModal?: () => void;
   isSuperAdmin?: boolean;
+  currentUser?: Usuario;
   userRole?: UserRole;
   onLogout?: () => void;
+  onOpenChangePassword?: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ 
@@ -29,8 +33,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
   pendingTasksCount = 1,
   onOpenMigrationModal,
   isSuperAdmin = false,
+  currentUser,
   userRole = 'Administrador',
   onLogout,
+  onOpenChangePassword,
 }) => {
   const allNavItems: { id: NavScreen; label: string; icon: React.ReactNode; badge?: string }[] = [
     { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard className="w-5 h-5" /> },
@@ -101,8 +107,46 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </nav>
       </div>
 
-      {/* Logout Box */}
-      <div className="px-4 pb-4">
+      {/* User Card & Logout Section */}
+      <div className="flex flex-col gap-2.5 px-4 pb-4">
+        {currentUser && (
+          <div className="p-3 rounded-xl bg-white border border-[#d3e4fe] shadow-xs flex flex-col gap-2">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-full bg-[#0051d5] text-white flex items-center justify-center font-bold text-xs shrink-0">
+                {currentUser.nombre?.charAt(0).toUpperCase() || 'U'}
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="font-semibold text-xs text-[#0b1c30] truncate" title={currentUser.nombre}>
+                  {currentUser.nombre}
+                </div>
+                <div className="flex items-center gap-1.5 mt-0.5">
+                  <span className="text-[10px] font-bold text-[#0051d5] px-1.5 py-0.2 rounded bg-[#eff4ff]">
+                    {currentUser.rol}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {currentUser.edificio_asignado && (
+              <div className="text-[10px] text-[#64748b] bg-[#f8f9ff] px-2 py-1 rounded border border-[#e5eeff] truncate">
+                🏢 {currentUser.edificio_asignado}
+              </div>
+            )}
+
+            {onOpenChangePassword && (
+              <button
+                type="button"
+                onClick={onOpenChangePassword}
+                className="w-full py-1.5 px-2 rounded-lg bg-[#f8f9ff] hover:bg-[#eff4ff] border border-[#d3e4fe] text-[#0051d5] text-[11px] font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                title="Cambiar contraseña de tu cuenta"
+              >
+                <KeyRound className="w-3 h-3 text-[#0051d5]" />
+                <span>Cambiar Contraseña</span>
+              </button>
+            )}
+          </div>
+        )}
+
         {onLogout && (
           <button
             type="button"
