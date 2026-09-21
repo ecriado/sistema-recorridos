@@ -22,7 +22,10 @@ if (defaultUrl && defaultKey && !defaultUrl.includes('xyzcompany')) {
     console.warn('Supabase client failed to initialize with provided env:', e);
   }
 }
-
+// SOLO PARA DEPURACIÓN — quitar antes de producción
+if (typeof window !== 'undefined' && client) {
+  (window as any).supabase = client;
+}
 export function getSupabaseClient(): SupabaseClient | null {
   return client;
 }
@@ -217,6 +220,8 @@ export async function loadEdificiosFromSupabase(): Promise<{ data: any[] | null;
       activo: row.activo !== false,
       administrador_actual: row.administrador_actual || 'Administrador asignado',
       id_administrador_actual: row.id_administrador_actual || row.id_administrador || '',
+      tecnico_mantenimiento: row.tecnico_mantenimiento || 'Sin Técnico asignado',
+      id_tecnico_mantenimiento: row.id_tecnico_mantenimiento || row.id_tecnico || '',
     }));
     return { data: mapped, error: null };
   } catch (e: any) {
@@ -347,215 +352,119 @@ export interface AuthResult {
   source?: 'supabase_auth' | 'database_profile' | 'local_fallback';
 }
 
-/**
- * Autentica usuario con estricta validación de seguridad (Supabase Auth GoTrue + PostgreSQL).
- */
-export async function authenticateUser(emailOrLogin: string, password?: string): Promise<AuthResult> {
-  const trimmed = emailOrLogin.trim().toLowerCase();
-  const cleanPass = password?.trim();
+// ── Perfil de negocio de la cuenta con sesión ───────────────────────────
+async function fetchProfile(userId: string): Promise<Usuario | null> {
+  if (!client) return null;
+  const { data, error } = await client
+    .from('usuarios')
+    .select('id, id_usuario, nombre, email, rol, usuario_login, activo, cambiar_password')
+    .eq('id', userId)
+    .maybeSingle();
+  if (error || !data || data.activo === false) return null;
 
-  if (!cleanPass) {
-    return {
-      ok: false,
-      message: 'Por favor ingresa tu contraseña de acceso.',
-    };
-  }
-
-  if (!trimmed) {
-    return {
-      ok: false,
-      message: 'Por favor ingresa tu correo electrónico o nombre de usuario.',
-    };
-  }
-  
-  if (!client) {
-    return {
-      ok: false,
-      message: 'Cliente de Supabase no inicializado. Revisa la conexión en "Diagnóstico de BD".',
-    };
-  }
-
-  try {
-    // 1. Buscar primero en la tabla pública de usuarios (por email o por usuario_login)
-    const isEmail = trimmed.includes('@');
-    const query = client.from('usuarios').select('*');
-    
-    const { data: users, error: dbError } = isEmail
-      ? await query.ilike('email', trimmed).limit(1)
-      : await query.ilike('usuario_login', trimmed).limit(1);
-
-    if (dbError) {
-      console.warn('Error consultando usuarios en PostgreSQL:', dbError);
-    }
-
-    const dbUser = users && users.length > 0 ? users[0] : null;
-
-    // Si el usuario existe en PostgreSQL y está inactivo, rechazar inmediatamente
-    if (dbUser && dbUser.activo === false) {
-      return {
-        ok: false,
-        message: 'Esta cuenta ha sido inhabilitada por un Administrador.',
-      };
-    }
-
-    const userEmail = dbUser ? dbUser.email : (isEmail ? trimmed : null);
-
-    // 2. Validación de seguridad con Supabase Auth GoTrue (BCrypt / Argon2 nativo de Supabase)
-    if (userEmail) {
-      try {
-        const { data: authData, error: authError } = await client.auth.signInWithPassword({
-          email: userEmail.toLowerCase(),
-          password: cleanPass,
-        });
-
-        if (!authError && authData.user) {
-          const mappedUser = {
-            id_usuario: dbUser?.id_usuario || dbUser?.id || authData.user.id,
-            nombre: dbUser?.nombre || authData.user.user_metadata?.nombre || userEmail.split('@')[0],
-            email: userEmail.toLowerCase(),
-            rol: dbUser?.rol || authData.user.user_metadata?.rol || 'Administrador',
-            usuario_login: dbUser?.usuario_login || userEmail.split('@')[0],
-            activo: true,
-            id_edificio_asignado: dbUser?.id_edificio_asignado,
-            edificio_asignado: dbUser?.edificio_asignado,
-            edificios: dbUser?.edificios || [],
-          };
-
-          return {
-            ok: true,
-            user: mappedUser,
-            message: 'Autenticación exitosa mediante Supabase Auth (sesión encriptada).',
-            source: 'supabase_auth',
-          };
-        }
-      } catch (authCatch) {
-        console.warn('Supabase Auth error durante login:', authCatch);
-      }
-    }
-
-    // 3. Si no autenticó en GoTrue pero el usuario existe en la tabla 'usuarios'
-    if (dbUser) {
-      // Verificar si tiene contraseña almacenada en PostgreSQL (password o password_hash)
-      const storedPass = dbUser.password || dbUser.password_hash;
-      const isMatch = storedPass ? storedPass === cleanPass : false;
-
-      // Si coincide la contraseña registrada en PostgreSQL
-      if (isMatch) {
-        const mappedUser = {
-          id_usuario: dbUser.id_usuario || dbUser.id,
-          nombre: dbUser.nombre || 'Usuario',
-          email: dbUser.email || trimmed,
-          rol: dbUser.rol || 'Administrador',
-          usuario_login: dbUser.usuario_login || dbUser.email?.split('@')[0] || '',
-          activo: true,
-          id_edificio_asignado: dbUser.id_edificio_asignado,
-          edificio_asignado: dbUser.edificio_asignado,
-          edificios: dbUser.edificios || [],
-        };
-
-        // Sincronizar en segundo plano con Supabase GoTrue Auth para reforzar la seguridad
-        if (dbUser.email && cleanPass.length >= 6) {
-          client.auth.signUp({
-            email: dbUser.email.toLowerCase(),
-            password: cleanPass,
-            options: {
-              data: {
-                nombre: dbUser.nombre,
-                rol: dbUser.rol,
-              },
-            },
-          }).catch(() => {});
-        }
-
-        return {
-          ok: true,
-          user: mappedUser,
-          message: 'Autenticación verificada contra credenciales de PostgreSQL/Supabase.',
-          source: 'database_profile',
-        };
-      }
-
-      // Si no coincide la contraseña
-      return {
-        ok: false,
-        message: 'Contraseña incorrecta. Por favor verifica tus credenciales o solicita un restablecimiento de clave.',
-      };
-    }
-
-    return {
-      ok: false,
-      message: `No se encontró ninguna cuenta registrada con el identificador "${trimmed}".`,
-    };
-  } catch (err: any) {
-    return {
-      ok: false,
-      message: err?.message || 'Error inesperado durante la autenticación.',
-    };
-  }
+  return {
+    id_usuario: data.id_usuario || data.id,
+    nombre: data.nombre,
+    email: data.email,
+    rol: data.rol,
+    usuario_login: data.usuario_login,
+    activo: true,
+    cambiar_password: data.cambiar_password === true,
+    edificios: [],
+  } as Usuario;
 }
 
-/**
- * Registra un nuevo usuario en Supabase Auth y en la tabla 'usuarios'.
- */
-export async function registerUserInSupabase(userData: {
-  nombre: string;
-  email: string;
-  password?: string;
-  rol: string;
-  usuario_login: string;
-  edificios?: string[];
-}): Promise<{ ok: boolean; message: string; user?: any }> {
-  if (!client) return { ok: false, message: 'Supabase no conectado.' };
+// ── Login: única validación de credenciales = Supabase Auth ─────────────
+export async function authenticateUser(email: string, password?: string): Promise<AuthResult> {
+  const cleanEmail = email.trim().toLowerCase();
+  const pass = password ?? '';
+  if (!cleanEmail || !pass) return { ok: false, message: 'Ingresa tu correo y tu contraseña.' };
+  if (!client) return { ok: false, message: 'Cliente de Supabase no inicializado.' };
 
-  try {
-    let authUserId: string | null = null;
+  const { data, error } = await client.auth.signInWithPassword({ email: cleanEmail, password: pass });
+  if (error || !data.user) return { ok: false, message: 'Correo o contraseña incorrectos.' };
 
-    // Si se especificó contraseña, registrar también en Supabase Auth
-    if (userData.password && userData.password.length >= 6) {
-      const { data: authData, error: authError } = await client.auth.signUp({
-        email: userData.email,
-        password: userData.password,
-        options: {
-          data: {
-            nombre: userData.nombre,
-            rol: userData.rol,
-            usuario_login: userData.usuario_login,
-          },
-        },
-      });
-
-      if (!authError && authData.user) {
-        authUserId = authData.user.id;
-      }
-    }
-
-    // Insertar en la tabla 'usuarios'
-    const newId = authUserId || `USR-${Math.floor(Math.random() * 100000)}`;
-    const { data: dbData, error: dbError } = await client.from('usuarios').insert([
-      {
-        id_usuario: newId,
-        nombre: userData.nombre,
-        email: userData.email.toLowerCase(),
-        rol: userData.rol,
-        usuario_login: userData.usuario_login.toLowerCase(),
-        activo: true,
-        cambiar_password: false,
-        intentos_fallidos: 0,
-      },
-    ]).select();
-
-    if (dbError) {
-      return { ok: false, message: `Error en BD: ${dbError.message}` };
-    }
-
-    return {
-      ok: true,
-      message: 'Usuario registrado exitosamente en Supabase.',
-      user: dbData?.[0] || { ...userData, id_usuario: newId, activo: true },
-    };
-  } catch (e: any) {
-    return { ok: false, message: e?.message || 'Error al registrar usuario.' };
+  const user = await fetchProfile(data.user.id);
+  if (!user) {
+    await client.auth.signOut();
+    return { ok: false, message: 'Tu cuenta no tiene acceso a EazyOps. Contacta a un Administrador.' };
   }
+  return { ok: true, user, message: 'Bienvenido.', source: 'supabase_auth' };
+}
+
+export async function getCurrentProfile(): Promise<Usuario | null> {
+  if (!client) return null;
+  const { data } = await client.auth.getUser();      // se valida contra el servidor
+  return data.user ? fetchProfile(data.user.id) : null;
+}
+
+export function onAuthEvents(handlers: { onSignedOut?: () => void; onPasswordRecovery?: () => void }): () => void {
+  if (!client) return () => {};
+  const { data } = client.auth.onAuthStateChange((event) => {
+    if (event === 'SIGNED_OUT') handlers.onSignedOut?.();
+    if (event === 'PASSWORD_RECOVERY') handlers.onPasswordRecovery?.();
+  });
+  return () => data.subscription.unsubscribe();
+}
+
+export async function signOutUser(): Promise<void> {
+  await client?.auth.signOut();
+}
+
+// ── Contraseñas ─────────────────────────────────────────────────────────
+export async function changeOwnPassword(newPassword: string): Promise<{ ok: boolean; message: string }> {
+  if (!client) return { ok: false, message: 'Supabase no conectado.' };
+  if (!newPassword || newPassword.length < 8) {
+    return { ok: false, message: 'La contraseña debe tener al menos 8 caracteres.' };
+  }
+  const { data: { user } } = await client.auth.getUser();
+  if (!user) return { ok: false, message: 'Tu sesión expiró. Inicia sesión de nuevo.' };
+
+  const { error } = await client.auth.updateUser({ password: newPassword });
+  if (error) return { ok: false, message: `No se pudo cambiar la contraseña: ${error.message}` };
+
+  await client.from('usuarios').update({ cambiar_password: false }).eq('id', user.id);
+  return { ok: true, message: 'Contraseña actualizada.' };
+}
+
+// Compatibilidad: los llamadores actuales siguen compilando, pero solo se cambia la contraseña PROPIA
+export async function changeUserPasswordInSupabase(idOrEmail: string, newPassword: string) {
+  if (!client) return { ok: false, message: 'Supabase no conectado.' };
+  const { data } = await client.auth.getUser();
+  const yo = data.user;
+  const perfil = yo ? await fetchProfile(yo.id) : null;
+  const esMia = !!yo && (
+    yo.id === idOrEmail ||
+    yo.email?.toLowerCase() === idOrEmail.toLowerCase() ||
+    perfil?.id_usuario === idOrEmail
+  );
+  if (!esMia) {
+    return { ok: false, message: 'Solo puedes cambiar tu propia contraseña. Para otra persona usa el restablecimiento por correo.' };
+  }
+  return changeOwnPassword(newPassword);
+}
+
+export async function changeSelfPassword(_userId: string, _userEmail: string, newPass: string) {
+  return changeOwnPassword(newPass);
+}
+
+export async function requestPasswordReset(email: string): Promise<{ ok: boolean; message: string }> {
+  const clean = email.trim().toLowerCase();
+  if (!clean.includes('@')) return { ok: false, message: 'Ingresa tu correo electrónico.' };
+  if (!client) return { ok: false, message: 'Cliente de Supabase no inicializado.' };
+
+  const { error } = await client.auth.resetPasswordForEmail(clean, { redirectTo: window.location.origin });
+  if (error) {
+    console.warn('resetPasswordForEmail:', error.message);
+    return { ok: false, message: 'No pudimos enviar el correo ahora. Inténtalo en unos minutos o contacta a un Administrador.' };
+  }
+  // Mismo mensaje exista o no la cuenta: no revela qué correos están registrados
+  return { ok: true, message: 'Si el correo está registrado, recibirás un enlace para crear una nueva contraseña.' };
+}
+
+// ── Alta de usuarios: desactivada hasta tener una Edge Function ─────────
+export async function registerUserInSupabase(_userData: any): Promise<{ ok: boolean; message: string; user?: any }> {
+  return { ok: false, message: 'Por ahora el alta de usuarios se hace desde el panel de Supabase.' };
 }
 
 /**
@@ -621,50 +530,6 @@ export async function deleteUsuarioFromSupabase(idOrEmail: string): Promise<{ ok
 }
 
 /**
- * Permite al SuperAdmin cambiar la contraseña de un usuario en Supabase
- */
-export async function changeUserPasswordInSupabase(
-  idOrEmail: string,
-  newPassword: string
-): Promise<{ ok: boolean; message: string }> {
-  if (!client) return { ok: false, message: 'Supabase no conectado.' };
-  if (!newPassword || newPassword.length < 6) {
-    return { ok: false, message: 'La contraseña debe contener al menos 6 caracteres.' };
-  }
-
-  try {
-    // 1. Intentar actualizar contraseña de usuario actual si es la misma sesión de auth
-    const { data: userData } = await client.auth.getUser();
-    if (userData?.user?.email?.toLowerCase() === idOrEmail.toLowerCase() || userData?.user?.id === idOrEmail) {
-      const { error: selfUpdateErr } = await client.auth.updateUser({ password: newPassword });
-      if (!selfUpdateErr) {
-        return { ok: true, message: 'Contraseña actualizada exitosamente en Supabase Auth.' };
-      }
-    }
-
-    // 2. Marcar en la tabla usuarios de PostgreSQL para sincronización o reseteo
-    const { error: dbErr } = await client
-      .from('usuarios')
-      .update({
-        cambiar_password: false,
-        intentos_fallidos: 0,
-      })
-      .or(`id_usuario.eq.${idOrEmail},email.eq.${idOrEmail}`);
-
-    if (dbErr) {
-      console.warn('Advertencia al marcar flags en tabla usuarios:', dbErr.message);
-    }
-
-    return {
-      ok: true,
-      message: 'Contraseña renovada y registrada correctamente para el usuario en Supabase.',
-    };
-  } catch (err: any) {
-    return { ok: false, message: err?.message || 'Error al actualizar contraseña.' };
-  }
-}
-
-/**
  * Crea un nuevo edificio en Supabase (Función exclusiva SuperAdmin)
  */
 export async function createEdificioInSupabase(edificio: {
@@ -673,30 +538,34 @@ export async function createEdificioInSupabase(edificio: {
   direccion: string;
   administrador_actual?: string;
   id_administrador_actual?: string;
+  tecnico_mantenimiento?: string;
+  id_tecnico_mantenimiento?: string;
   activo?: boolean;
 }): Promise<{ ok: boolean; message: string; data?: any }> {
   if (!client) return { ok: false, message: 'Supabase no conectado.' };
   try {
     const id = edificio.id_edificio || `EDI-${Math.floor(Math.random() * 900000 + 100000)}`;
-    const payload = {
+    const payload: any = {
       id_edificio: id,
       nombre: edificio.nombre,
       direccion: edificio.direccion || '',
       administrador_actual: edificio.administrador_actual || 'Por asignar',
       id_administrador_actual: edificio.id_administrador_actual || '',
+      tecnico_mantenimiento: edificio.tecnico_mantenimiento || 'Sin Técnico asignado',
+      id_tecnico_mantenimiento: edificio.id_tecnico_mantenimiento || '',
       activo: edificio.activo !== false,
     };
 
     const { data, error } = await client.from('edificios').insert([payload]).select();
     if (error) {
-      // Si la tabla usa id en vez de id_edificio
-      const fallbackPayload = {
-        id,
+      // Fallback si las columnas administrador_actual / tecnico_mantenimiento aún no existen en PostgreSQL
+      const safePayload = {
+        id_edificio: id,
         nombre: edificio.nombre,
         direccion: edificio.direccion || '',
         activo: edificio.activo !== false,
       };
-      const { data: fbData, error: fbError } = await client.from('edificios').insert([fallbackPayload]).select();
+      const { data: fbData, error: fbError } = await client.from('edificios').insert([safePayload]).select();
       if (fbError) return { ok: false, message: `Error al crear edificio: ${fbError.message}` };
       return { ok: true, message: 'Edificio registrado en Supabase.', data: fbData?.[0] || payload };
     }
@@ -717,6 +586,8 @@ export async function updateEdificioInSupabase(
     direccion: string;
     administrador_actual: string;
     id_administrador_actual: string;
+    tecnico_mantenimiento: string;
+    id_tecnico_mantenimiento: string;
     activo: boolean;
   }>
 ): Promise<{ ok: boolean; message: string }> {
@@ -727,12 +598,27 @@ export async function updateEdificioInSupabase(
     if (updates.direccion !== undefined) payload.direccion = updates.direccion;
     if (updates.administrador_actual !== undefined) payload.administrador_actual = updates.administrador_actual;
     if (updates.id_administrador_actual !== undefined) payload.id_administrador_actual = updates.id_administrador_actual;
+    if (updates.tecnico_mantenimiento !== undefined) payload.tecnico_mantenimiento = updates.tecnico_mantenimiento;
+    if (updates.id_tecnico_mantenimiento !== undefined) payload.id_tecnico_mantenimiento = updates.id_tecnico_mantenimiento;
     if (updates.activo !== undefined) payload.activo = updates.activo;
 
-    const { error } = await client
+    // Actualizar primero por id_edificio
+    let { error } = await client
       .from('edificios')
       .update(payload)
-      .or(`id_edificio.eq.${id},id.eq.${id}`);
+      .eq('id_edificio', id);
+
+    // Si falló por columna inexistente (schema cache), reintentar solo con campos base
+    if (error && error.message.includes('Could not find') && error.message.includes('column')) {
+      const basicPayload: any = {};
+      if (updates.nombre !== undefined) basicPayload.nombre = updates.nombre;
+      if (updates.direccion !== undefined) basicPayload.direccion = updates.direccion;
+      if (updates.activo !== undefined) basicPayload.activo = updates.activo;
+      const retry = await client.from('edificios').update(basicPayload).eq('id_edificio', id);
+      if (!retry.error) {
+        return { ok: true, message: 'Edificio actualizado en Supabase (datos básicos guardados).' };
+      }
+    }
 
     if (error) return { ok: false, message: `Error en Supabase: ${error.message}` };
     return { ok: true, message: 'Edificio actualizado correctamente en Supabase.' };
@@ -750,7 +636,7 @@ export async function deleteEdificioFromSupabase(id: string): Promise<{ ok: bool
     const { error } = await client
       .from('edificios')
       .delete()
-      .or(`id_edificio.eq.${id},id.eq.${id}`);
+      .eq('id_edificio', id);
 
     if (error) return { ok: false, message: `Error al eliminar edificio: ${error.message}` };
     return { ok: true, message: 'Edificio eliminado permanentemente de Supabase.' };
@@ -767,19 +653,15 @@ export async function createRecorridoInSupabase(rec: any): Promise<{ ok: boolean
   try {
     const payload = {
       id_recorrido: rec.id_recorrido,
-      nombre: rec.nombre,
+      nombre: rec.nombre || 'Recorrido',
       id_edificio: rec.id_edificio,
-      edificio_nombre: rec.edificio_nombre,
-      fecha_programada: rec.fecha_programada,
-      fecha_cierre_programada: rec.fecha_cierre_programada,
+      fecha_programada: rec.fecha_programada || new Date().toISOString(),
+      fecha_cierre_programada: rec.fecha_cierre_programada || null,
       cierre_automatico: rec.cierre_automatico !== false,
-      inspector_email: rec.inspector_email,
-      inspector_nombre: rec.inspector_nombre,
+      inspector_email: rec.inspector_email || 'admin@eazyops.com',
       estado: rec.estado || 'Programado',
       observaciones: rec.observaciones || '',
-      creado_por: rec.creado_por,
-      checkpoints_count: rec.checkpoints_count || 8,
-      hallazgos_count: rec.hallazgos_count || 0,
+      creado_por: rec.creado_por || 'Sistema',
     };
     const { error } = await client.from('recorridos').insert(payload);
     if (error) return { ok: false, message: `Error en Supabase: ${error.message}` };
@@ -798,10 +680,18 @@ export async function updateRecorridoInSupabase(
 ): Promise<{ ok: boolean; message: string }> {
   if (!client) return { ok: false, message: 'Supabase no conectado.' };
   try {
+    const payload: any = { ...updates };
+    // Evitar intentar actualizar columnas que puedan no existir o llaves primarias
+    delete payload.id;
+    delete payload.checkpoints_count;
+    delete payload.hallazgos_count;
+    delete payload.edificio_nombre;
+    delete payload.inspector_nombre;
+
     const { error } = await client
       .from('recorridos')
-      .update(updates)
-      .or(`id_recorrido.eq.${id},id.eq.${id}`);
+      .update(payload)
+      .eq('id_recorrido', id);
     if (error) return { ok: false, message: `Error en Supabase: ${error.message}` };
     return { ok: true, message: 'Recorrido actualizado en Supabase.' };
   } catch (err: any) {
@@ -818,99 +708,79 @@ export async function deleteRecorridoFromSupabase(id: string): Promise<{ ok: boo
     const { error } = await client
       .from('recorridos')
       .delete()
-      .or(`id_recorrido.eq.${id},id.eq.${id}`);
+      .eq('id_recorrido', id);
     if (error) return { ok: false, message: `Error al eliminar recorrido: ${error.message}` };
-    return { ok: true, message: 'Recorrido eliminado de Supabase.' };
+    return { ok: true, message: 'Recorrido eliminado de Supabase permanentemente.' };
   } catch (err: any) {
     return { ok: false, message: err?.message || 'Error al eliminar recorrido.' };
   }
 }
 
 /**
- * Solicitud de recuperación de contraseña ("¿Olvidaste tu contraseña?")
+ * Crea una tarea en Supabase
  */
-export async function requestPasswordReset(emailOrLogin: string): Promise<{ ok: boolean; message: string; simulated?: boolean }> {
-  if (!emailOrLogin.trim()) {
-    return { ok: false, message: 'Ingresa tu correo o usuario de login.' };
+export async function createTareaInSupabase(tarea: any): Promise<{ ok: boolean; message: string; data?: any }> {
+  if (!client) return { ok: false, message: 'Supabase no conectado.' };
+  try {
+    const payload = {
+      id_tarea: tarea.id_tarea,
+      id_edificio: tarea.id_edificio,
+      tipo_origen: tarea.tipo_origen || 'Manual',
+      asignado_a_email: tarea.asignado_a_email || 'admin@eazyops.com',
+      titulo_tarea: tarea.titulo_tarea || tarea.titulo || 'Tarea',
+      instrucciones: tarea.instrucciones || '',
+      prioridad: tarea.prioridad || 'Media',
+      fecha_limite: tarea.fecha_limite || null,
+      creado_por: tarea.creado_por || 'admin@eazyops.com',
+      estado_tarea: tarea.estado_tarea || tarea.estado || 'Pendiente',
+    };
+    const { data, error } = await client.from('tareas').insert([payload]).select();
+    if (error) return { ok: false, message: `Error en Supabase: ${error.message}` };
+    return { ok: true, message: 'Tarea registrada en Supabase.', data: data?.[0] || payload };
+  } catch (err: any) {
+    return { ok: false, message: err?.message || 'Error al crear tarea.' };
   }
-
-  const clean = emailOrLogin.trim().toLowerCase();
-
-  if (client) {
-    try {
-      // 1. Si parece un email, solicitar enlace de reseteo a Supabase Auth
-      if (clean.includes('@')) {
-        const { error } = await client.auth.resetPasswordForEmail(clean, {
-          redirectTo: window.location.origin,
-        });
-        if (!error) {
-          return {
-            ok: true,
-            message: `Se ha enviado un enlace de recuperación oficial a ${clean}. Revisa tu bandeja de entrada.`,
-          };
-        }
-      }
-
-      // 2. Verificar existencia en tabla usuarios de Supabase
-      const { data: found } = await client
-        .from('usuarios')
-        .select('*')
-        .or(`email.eq.${clean},usuario_login.eq.${clean}`)
-        .maybeSingle();
-
-      if (found) {
-        return {
-          ok: true,
-          message: `Usuario '${found.nombre}' localizado. Hemos enviado la notificación de reseteo al administrador y registrado la solicitud para ${found.email}.`,
-        };
-      }
-    } catch (e: any) {
-      console.warn('Error en requestPasswordReset Supabase:', e);
-    }
-  }
-
-  return {
-    ok: true,
-    simulated: true,
-    message: `Instrucciones de recuperación generadas para ${clean}. Puedes contactar al SuperAdmin o usar tu acceso con credenciales temporales.`,
-  };
 }
 
 /**
- * Cambio de contraseña del perfil actualmente autenticado
+ * Actualiza una tarea en Supabase
  */
-export async function changeSelfPassword(
-  userId: string,
-  userEmail: string,
-  newPass: string
+export async function updateTareaInSupabase(
+  id: string,
+  updates: any
 ): Promise<{ ok: boolean; message: string }> {
-  if (!newPass || newPass.length < 6) {
-    return { ok: false, message: 'La nueva contraseña debe tener mínimo 6 caracteres.' };
-  }
+  if (!client) return { ok: false, message: 'Supabase no conectado.' };
+  try {
+    const payload: any = { ...updates };
+    delete payload.id;
+    delete payload.edificio_nombre;
+    delete payload.asignado_a_nombre;
+    delete payload.asignado_a_rol;
 
-  if (client) {
-    try {
-      // Intentar actualizar sesión en Supabase Auth
-      const { error: authErr } = await client.auth.updateUser({ password: newPass });
-      if (!authErr) {
-        // También actualizar en la base de datos de usuarios
-        await client
-          .from('usuarios')
-          .update({ cambiar_password: false })
-          .or(`id_usuario.eq.${userId},email.eq.${userEmail}`);
-        return { ok: true, message: '¡Tu contraseña ha sido actualizada con éxito en Supabase!' };
-      }
-    } catch (e) {
-      console.warn('Fallo auth.updateUser, aplicando fallback BD:', e);
-    }
+    const { error } = await client
+      .from('tareas')
+      .update(payload)
+      .eq('id_tarea', id);
+    if (error) return { ok: false, message: `Error en Supabase: ${error.message}` };
+    return { ok: true, message: 'Tarea actualizada en Supabase.' };
+  } catch (err: any) {
+    return { ok: false, message: err?.message || 'Error al actualizar tarea.' };
   }
-
-  return {
-    ok: true,
-    message: 'Contraseña actualizada y protegida para tu sesión.',
-  };
 }
 
-
-
-
+/**
+ * Elimina una tarea de Supabase
+ */
+export async function deleteTareaFromSupabase(id: string): Promise<{ ok: boolean; message: string }> {
+  if (!client) return { ok: false, message: 'Supabase no conectado.' };
+  try {
+    const { error } = await client
+      .from('tareas')
+      .delete()
+      .eq('id_tarea', id);
+    if (error) return { ok: false, message: `Error en Supabase: ${error.message}` };
+    return { ok: true, message: 'Tarea eliminada de Supabase.' };
+  } catch (err: any) {
+    return { ok: false, message: err?.message || 'Error al eliminar tarea.' };
+  }
+}

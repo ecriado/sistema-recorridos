@@ -20,6 +20,8 @@ export interface Edificio {
   activo: boolean;
   id_administrador_actual?: string;
   administrador_actual?: string;
+  id_tecnico_mantenimiento?: string;
+  tecnico_mantenimiento?: string;
   conflicto_administradores?: boolean;
 }
 

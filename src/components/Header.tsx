@@ -191,7 +191,10 @@ export const Header: React.FC<HeaderProps> = ({
                 EAZY
               </span>
               <span className="text-[10px] font-semibold text-[#64748b] tracking-wider leading-none mt-0.5">
-                PROPERTY OPS
+                PROPERTY
+              </span>
+			  <span className="text-[10px] font-semibold text-[#64748b] tracking-wider leading-none mt-0.5">
+                MANAGEMENT
               </span>
             </div>
           </div>

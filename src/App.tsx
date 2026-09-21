@@ -38,7 +38,10 @@ import {
   deleteEdificioFromSupabase,
   createRecorridoInSupabase,
   updateRecorridoInSupabase,
-  deleteRecorridoFromSupabase
+  deleteRecorridoFromSupabase,
+  createTareaInSupabase,
+  updateTareaInSupabase,
+  deleteTareaFromSupabase
 } from './lib/supabaseClient';
 
 import { DashboardView } from './components/views/DashboardView';
@@ -345,14 +348,14 @@ export default function App() {
     showToast(`Recorrido ${id} eliminado correctamente.`);
   };
 
-  const handleCreateTarea = (nueva: Partial<Tarea>) => {
-    const nextId = `TAR-000${tareas.length + 105}`;
+  const handleCreateTarea = async (nueva: Partial<Tarea>) => {
+    const nextId = `TAR-${String(tareas.length + 105).padStart(6, '0')}`;
     const item: Tarea = {
       id_tarea: nextId,
       id_edificio: nueva.id_edificio || edificios[0]?.id_edificio,
       edificio_nombre: nueva.edificio_nombre,
       tipo_origen: nueva.tipo_origen || 'Manual',
-      asignado_a_email: nueva.asignado_a_email || '',
+      asignado_a_email: nueva.asignado_a_email || currentUser?.email || 'admin@eazyops.com',
       asignado_a_nombre: nueva.asignado_a_nombre || 'Sin nombre',
       asignado_a_rol: nueva.asignado_a_rol || 'Técnico',
       titulo_tarea: nueva.titulo_tarea || 'Nueva Tarea',
@@ -360,28 +363,52 @@ export default function App() {
       prioridad: nueva.prioridad || 'Media',
       fecha_creacion: new Date().toISOString().slice(0, 19).replace('T', ' '),
       fecha_limite: nueva.fecha_limite,
-      creado_por: nueva.creado_por || currentUser?.email || 'admin@eazyops.gt',
+      creado_por: nueva.creado_por || currentUser?.email || 'admin@eazyops.com',
       creado_por_rol: nueva.creado_por_rol || currentUser?.rol || 'SuperAdmin',
       estado_tarea: 'Pendiente',
     };
 
     setTareas([item, ...tareas]);
-    showToast(`Tarea ${nextId} creada correctamente en Supabase.`);
+    showToast(`Guardando tarea ${nextId} en Supabase...`);
+    try {
+      const res = await createTareaInSupabase(item);
+      if (res.ok) {
+        showToast(`Tarea ${nextId} registrada en Supabase.`);
+      } else {
+        showToast(`Aviso Supabase: ${res.message}`);
+      }
+    } catch (e: any) {
+      console.warn('Error al persistir tarea en Supabase:', e);
+    }
   };
 
-  const handleUpdateTarea = (id: string, updates: Partial<Tarea>) => {
+  const handleUpdateTarea = async (id: string, updates: Partial<Tarea>) => {
     setTareas((prev) =>
       prev.map((t) => (t.id_tarea === id ? { ...t, ...updates } : t))
     );
-    showToast(`Tarea ${id} actualizada.`);
+    try {
+      const res = await updateTareaInSupabase(id, updates);
+      if (res.ok) {
+        showToast(`Tarea ${id} actualizada en Supabase.`);
+      }
+    } catch (e) {
+      console.warn('Error al actualizar tarea en Supabase:', e);
+    }
   };
 
-  const handleDeleteTarea = (id: string) => {
+  const handleDeleteTarea = async (id: string) => {
     setTareas((prev) => prev.filter((t) => t.id_tarea !== id));
-    showToast(`Tarea ${id} eliminada correctamente.`);
+    try {
+      const res = await deleteTareaFromSupabase(id);
+      if (res.ok) {
+        showToast(`Tarea ${id} eliminada de Supabase.`);
+      }
+    } catch (e) {
+      console.warn('Error al eliminar tarea de Supabase:', e);
+    }
   };
 
-  const handleCreateLoteMasivo = (lote: {
+  const handleCreateLoteMasivo = async (lote: {
     titulo: string;
     prioridad: any;
     fecha_limite: string;
@@ -392,24 +419,30 @@ export default function App() {
       const bld = edificios.find((b) => b.id_edificio === edId);
       const nextNum = tareas.length + 110 + index;
       return {
-        id_tarea: `TAR-000${nextNum}`,
+        id_tarea: `TAR-${String(nextNum).padStart(6, '0')}`,
         id_edificio: edId,
         edificio_nombre: bld?.nombre,
         tipo_origen: 'Masiva',
-        asignado_a_email: 'juan.mantenimiento@eazyops.gt',
-        asignado_a_nombre: 'Juan Mantenimiento',
+        asignado_a_email: currentUser?.email || 'admin@eazyops.com',
+        asignado_a_nombre: currentUser?.nombre || 'Técnico',
         titulo_tarea: lote.titulo,
         instrucciones: lote.instrucciones,
         prioridad: lote.prioridad,
         fecha_creacion: new Date().toISOString().slice(0, 19).replace('T', ' '),
         fecha_limite: lote.fecha_limite,
-        creado_por: 'carlos.mendez@eazyops.gt',
+        creado_por: currentUser?.email || 'admin@eazyops.com',
         estado_tarea: 'Pendiente',
       };
     });
 
     setTareas([...nuevasTareas, ...tareas]);
-    showToast(`Lote masivo de ${nuevasTareas.length} tareas creado en Supabase.`);
+    showToast(`Guardando lote de ${nuevasTareas.length} tareas en Supabase...`);
+    try {
+      await Promise.all(nuevasTareas.map((t) => createTareaInSupabase(t)));
+      showToast(`¡Lote de ${nuevasTareas.length} tareas guardado con éxito en Supabase!`);
+    } catch (e) {
+      console.warn('Error al guardar lote en Supabase:', e);
+    }
   };
 
   const handleCreateAutomatizacion = (nueva: Partial<TareaAutomatica>) => {
@@ -446,7 +479,14 @@ export default function App() {
     showToast('Automatización eliminada.');
   };
 
-  const handleCreateEdificio = async (nuevo: { nombre: string; direccion: string; id_administrador?: string; administrador_actual?: string }) => {
+  const handleCreateEdificio = async (nuevo: { 
+    nombre: string; 
+    direccion: string; 
+    id_administrador?: string; 
+    administrador_actual?: string;
+    id_tecnico_mantenimiento?: string;
+    tecnico_mantenimiento?: string;
+  }) => {
     const nextId = `EDI-${String(Date.now()).slice(-6)}`;
     const admin = usuarios.find((u) => u.id_usuario === nuevo.id_administrador);
     const item: Edificio = {
@@ -456,6 +496,8 @@ export default function App() {
       activo: true,
       id_administrador_actual: nuevo.id_administrador,
       administrador_actual: nuevo.administrador_actual || admin?.nombre || 'Sin Administrador',
+      id_tecnico_mantenimiento: nuevo.id_tecnico_mantenimiento,
+      tecnico_mantenimiento: nuevo.tecnico_mantenimiento || 'Sin Técnico asignado',
     };
     setEdificios([...edificios, item]);
     showToast(`Guardando edificio en Supabase...`);

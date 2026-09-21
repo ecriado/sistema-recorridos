@@ -179,7 +179,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                   <input
                     type="text"
                     required
-                    placeholder="ejemplo@eazyops.gt o usuario.login"
+                    placeholder="ejemplo@eazy.com.gt o usuario.login"
                     value={identifier}
                     onChange={(e) => setIdentifier(e.target.value)}
                     className="w-full h-11 pl-10 pr-3.5 rounded-xl bg-[#f8f9ff] border border-[#d3e4fe] text-xs text-[#0b1c30] focus:outline-none focus:border-[#0051d5] focus:bg-white transition-all"
@@ -241,6 +241,84 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                   </>
                 )}
               </button>
+
+              {/* Modo Pruebas / Acceso Rápido */}
+              <div className="pt-3 border-t border-[#e5eeff] flex flex-col gap-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold text-[#64748b] flex items-center gap-1">
+                    ⚡ Acceso Rápido (Modo Pruebas)
+                  </span>
+                  <span className="text-[10px] text-[#0051d5] font-mono bg-[#eff4ff] px-2 py-0.5 rounded-full font-semibold">
+                    Clave: admin123
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIdentifier('admin@eazyops.com');
+                      setPassword('admin123');
+                      setIsLoading(true);
+                      authenticateUser('admin@eazyops.com', 'admin123').then((res) => {
+                        setIsLoading(false);
+                        if (res.ok && res.user) onLoginSuccess(res.user);
+                      });
+                    }}
+                    className="p-2 rounded-xl bg-[#f8f9ff] hover:bg-[#eff4ff] border border-[#d3e4fe] text-left transition-all group cursor-pointer"
+                  >
+                    <div className="text-[11px] font-bold text-[#0b1c30] group-hover:text-[#0051d5]">SuperAdmin</div>
+                    <div className="text-[10px] text-[#64748b] truncate">admin@eazyops.com</div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIdentifier('carlos.azmitia@eazy.com.gt');
+                      setPassword('admin123');
+                      setIsLoading(true);
+                      authenticateUser('carlos.azmitia@eazy.com.gt', 'admin123').then((res) => {
+                        setIsLoading(false);
+                        if (res.ok && res.user) onLoginSuccess(res.user);
+                      });
+                    }}
+                    className="p-2 rounded-xl bg-[#f8f9ff] hover:bg-[#eff4ff] border border-[#d3e4fe] text-left transition-all group cursor-pointer"
+                  >
+                    <div className="text-[11px] font-bold text-[#0b1c30] group-hover:text-[#0051d5]">Supervisor</div>
+                    <div className="text-[10px] text-[#64748b] truncate">Carlos Azmitia</div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIdentifier('aralia.eazy@gmail.com');
+                      setPassword('admin123');
+                      setIsLoading(true);
+                      authenticateUser('aralia.eazy@gmail.com', 'admin123').then((res) => {
+                        setIsLoading(false);
+                        if (res.ok && res.user) onLoginSuccess(res.user);
+                      });
+                    }}
+                    className="p-2 rounded-xl bg-[#f8f9ff] hover:bg-[#eff4ff] border border-[#d3e4fe] text-left transition-all group cursor-pointer"
+                  >
+                    <div className="text-[11px] font-bold text-[#0b1c30] group-hover:text-[#0051d5]">Administrador</div>
+                    <div className="text-[10px] text-[#64748b] truncate">Erick Dávila</div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIdentifier('josesitomendez8@gmail.com');
+                      setPassword('admin123');
+                      setIsLoading(true);
+                      authenticateUser('josesitomendez8@gmail.com', 'admin123').then((res) => {
+                        setIsLoading(false);
+                        if (res.ok && res.user) onLoginSuccess(res.user);
+                      });
+                    }}
+                    className="p-2 rounded-xl bg-[#f8f9ff] hover:bg-[#eff4ff] border border-[#d3e4fe] text-left transition-all group cursor-pointer"
+                  >
+                    <div className="text-[11px] font-bold text-[#0b1c30] group-hover:text-[#0051d5]">Mantenimiento</div>
+                    <div className="text-[10px] text-[#64748b] truncate">Josue Campos</div>
+                  </button>
+                </div>
+              </div>
             </form>
           </div>
         ) : (

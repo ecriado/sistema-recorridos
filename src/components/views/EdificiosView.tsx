@@ -20,7 +20,14 @@ interface EdificiosViewProps {
   usuarios: Usuario[];
   currentUser?: Usuario;
   isSuperAdmin?: boolean;
-  onCreateEdificio: (nuevo: { nombre: string; direccion: string; id_administrador?: string; administrador_actual?: string }) => void;
+  onCreateEdificio: (nuevo: { 
+    nombre: string; 
+    direccion: string; 
+    id_administrador?: string; 
+    administrador_actual?: string;
+    id_tecnico_mantenimiento?: string;
+    tecnico_mantenimiento?: string;
+  }) => void;
   onUpdateEdificio: (id: string, updates: Partial<Edificio>) => void;
   onDeleteEdificio: (id: string) => void;
   onToggleActive: (id: string) => void;
@@ -57,15 +64,18 @@ export const EdificiosView: React.FC<EdificiosViewProps> = ({
   const [nombre, setNombre] = useState('');
   const [direccion, setDireccion] = useState('');
   const [adminId, setAdminId] = useState('');
+  const [tecnicoId, setTecnicoId] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
 
   const admins = usuarios.filter((u) => u && (u.rol === 'Administrador' || u.rol === 'SuperAdmin'));
+  const tecnicos = usuarios.filter((u) => u && (u.rol === 'Mantenimiento' || u.rol === 'Administrador' || u.rol === 'SuperAdmin'));
 
   const openCreateModal = () => {
     setEditingEdificio(null);
     setNombre('');
     setDireccion('');
     setAdminId(admins[0]?.id_usuario || '');
+    setTecnicoId(tecnicos.find((t) => t.rol === 'Mantenimiento')?.id_usuario || '');
     setIsModalOpen(true);
   };
 
@@ -74,6 +84,7 @@ export const EdificiosView: React.FC<EdificiosViewProps> = ({
     setNombre(ed.nombre);
     setDireccion(ed.direccion || '');
     setAdminId(ed.id_administrador_actual || '');
+    setTecnicoId(ed.id_tecnico_mantenimiento || '');
     setIsModalOpen(true);
   };
 
@@ -82,6 +93,7 @@ export const EdificiosView: React.FC<EdificiosViewProps> = ({
     if (!nombre.trim()) return;
 
     const selectedAdmin = usuarios.find((u) => u.id_usuario === adminId);
+    const selectedTecnico = usuarios.find((u) => u.id_usuario === tecnicoId);
 
     if (editingEdificio) {
       onUpdateEdificio(editingEdificio.id_edificio, {
@@ -89,6 +101,8 @@ export const EdificiosView: React.FC<EdificiosViewProps> = ({
         direccion: direccion.trim(),
         id_administrador_actual: adminId || undefined,
         administrador_actual: selectedAdmin ? selectedAdmin.nombre : editingEdificio.administrador_actual,
+        id_tecnico_mantenimiento: tecnicoId || undefined,
+        tecnico_mantenimiento: selectedTecnico ? selectedTecnico.nombre : editingEdificio.tecnico_mantenimiento,
       });
     } else {
       onCreateEdificio({
@@ -96,6 +110,8 @@ export const EdificiosView: React.FC<EdificiosViewProps> = ({
         direccion: direccion.trim(),
         id_administrador: adminId || undefined,
         administrador_actual: selectedAdmin?.nombre || 'Sin Administrador',
+        id_tecnico_mantenimiento: tecnicoId || undefined,
+        tecnico_mantenimiento: selectedTecnico?.nombre || 'Sin Técnico asignado',
       });
     }
 
@@ -103,6 +119,8 @@ export const EdificiosView: React.FC<EdificiosViewProps> = ({
     setEditingEdificio(null);
     setNombre('');
     setDireccion('');
+    setAdminId('');
+    setTecnicoId('');
   };
 
   // Visibility filter based on user role
@@ -271,6 +289,10 @@ export const EdificiosView: React.FC<EdificiosViewProps> = ({
                         </span>
                       ))}
                     </div>
+                  ) : ed.tecnico_mantenimiento && ed.tecnico_mantenimiento !== 'Sin Técnico asignado' ? (
+                    <span className="px-2 py-0.5 rounded bg-white border border-[#cbd5e1] text-[11px] text-[#0b1c30] font-medium inline-block mt-1">
+                      {ed.tecnico_mantenimiento}
+                    </span>
                   ) : (
                     <span className="text-[11px] text-[#94a3b8] italic">Sin técnico de mantenimiento asignado</span>
                   )}
@@ -380,6 +402,22 @@ export const EdificiosView: React.FC<EdificiosViewProps> = ({
                   {admins.map((adm) => (
                     <option key={adm.id_usuario} value={adm.id_usuario}>
                       {adm.nombre} ({adm.rol}) - {adm.email}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-semibold text-[#0b1c30]">Técnico de Mantenimiento Asignado</label>
+                <select
+                  value={tecnicoId}
+                  onChange={(e) => setTecnicoId(e.target.value)}
+                  className="w-full h-10 px-3 bg-[#f8f9ff] text-[#0b1c30] rounded-lg text-xs border border-[#e5eeff] focus:outline-none focus:border-[#0051d5]"
+                >
+                  <option value="">-- Sin Técnico Asignado --</option>
+                  {tecnicos.map((tec) => (
+                    <option key={tec.id_usuario} value={tec.id_usuario}>
+                      {tec.nombre} ({tec.rol}) - {tec.email}
                     </option>
                   ))}
                 </select>
