@@ -4,14 +4,14 @@ const defaultUrl =
   import.meta.env.VITE_SUPABASE_URL || 
   localStorage.getItem('sr_supabase_url') || 
   localStorage.getItem('VITE_SUPABASE_URL') || 
-  'https://wafkfxukpgtfromlgvif.supabase.co';
+  'https://fjjagwpgobpmcjxypiqi.supabase.co';
 
 const defaultKey = 
   import.meta.env.VITE_SUPABASE_ANON_KEY || 
   import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || 
   localStorage.getItem('sr_supabase_key') || 
   localStorage.getItem('VITE_SUPABASE_ANON_KEY') || 
-  'sb_publishable_9ZCxxaFBaoRTAuwQm28FOQ_17LFmqkE';
+  'sb_publishable_xmd2nqVxpd42nFH7NDBLQw_GiTgCbIO';
 
 let client: SupabaseClient | null = null;
 
