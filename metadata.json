@@ -1,6 +1,0 @@
-{
-  "name": "Previsualización y Cierre de Recorrido",
-  "description": "Previsualización y Cierre de Recorrido: Auditoría Integral y sellado digital en Supabase",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
-}
