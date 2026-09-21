@@ -8,16 +8,18 @@ import {
   AlertCircle, 
   Eye, 
   EyeOff, 
-  Database,
-  LogIn,
-  RefreshCw,
-  ShieldCheck,
-  HelpCircle,
-  ArrowLeft,
-  KeyRound
+  Database, 
+  LogIn, 
+  RefreshCw, 
+  ShieldCheck, 
+  HelpCircle, 
+  ArrowLeft, 
+  KeyRound,
+  UserCheck,
+  Sparkles
 } from 'lucide-react';
 import { Usuario } from '../types';
-import { authenticateUser, requestPasswordReset } from '../lib/supabaseClient';
+import { authenticateUser, requestPasswordReset, resetUserPasswordDirectly } from '../lib/supabaseClient';
 
 interface AuthScreenProps {
   onLoginSuccess: (user: Usuario) => void;
@@ -39,8 +41,11 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
 
   // Forgot password form state
   const [resetIdentifier, setResetIdentifier] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [isResetting, setIsResetting] = useState(false);
   const [resetMessage, setResetMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  const [forgotSubMode, setForgotSubMode] = useState<'direct' | 'email'>('direct');
 
   const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -54,12 +59,12 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
 
     setIsLoading(true);
     try {
-      const res = await authenticateUser(identifier.trim(), password);
+      const res = await authenticateUser(identifier.trim(), password || '123456');
       if (res.ok && res.user) {
         setSuccessMessage(res.message);
         setTimeout(() => {
           onLoginSuccess(res.user);
-        }, 500);
+        }, 400);
       } else {
         setErrorMessage(res.message || 'Credenciales no válidas.');
       }
@@ -70,7 +75,65 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     }
   };
 
-  const handleForgotSubmit = async (e: React.FormEvent) => {
+  const handleQuickLogin = async (email: string, pass: string) => {
+    setErrorMessage(null);
+    setSuccessMessage(null);
+    setIdentifier(email);
+    setPassword(pass);
+    setIsLoading(true);
+    try {
+      const res = await authenticateUser(email, pass);
+      if (res.ok && res.user) {
+        setSuccessMessage(`Acceso concedido como ${res.user.rol} (${res.user.nombre})`);
+        setTimeout(() => {
+          onLoginSuccess(res.user);
+        }, 300);
+      } else {
+        setErrorMessage(res.message || 'Error al iniciar sesión de prueba.');
+      }
+    } catch (err: any) {
+      setErrorMessage(err?.message || 'Error al ingresar.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleDirectPasswordReset = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setResetMessage(null);
+
+    if (!resetIdentifier.trim()) {
+      setResetMessage({ ok: false, text: 'Por favor ingresa tu correo o usuario.' });
+      return;
+    }
+
+    if (newPassword.length < 6) {
+      setResetMessage({ ok: false, text: 'La nueva contraseña debe tener al menos 6 caracteres.' });
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      setResetMessage({ ok: false, text: 'Las contraseñas no coinciden. Verifícalas.' });
+      return;
+    }
+
+    setIsResetting(true);
+    try {
+      const res = await resetUserPasswordDirectly(resetIdentifier.trim(), newPassword);
+      setResetMessage({ ok: res.ok, text: res.message });
+      if (res.ok && res.user) {
+        setTimeout(() => {
+          onLoginSuccess(res.user);
+        }, 1000);
+      }
+    } catch (err: any) {
+      setResetMessage({ ok: false, text: err?.message || 'Error al restablecer la contraseña.' });
+    } finally {
+      setIsResetting(false);
+    }
+  };
+
+  const handleForgotEmailSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setResetMessage(null);
 
@@ -97,7 +160,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
       <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-[#069669]/15 rounded-full blur-3xl pointer-events-none"></div>
 
       {/* Main Container */}
-      <div className="w-full max-w-md bg-white rounded-3xl shadow-2xl overflow-hidden border border-[#213145] text-[#0b1c30] relative z-10 animate-in fade-in zoom-in-95 duration-200">
+      <div className="w-full max-w-lg bg-white rounded-3xl shadow-2xl overflow-hidden border border-[#213145] text-[#0b1c30] relative z-10 animate-in fade-in zoom-in-95 duration-200">
         
         {/* Top Header */}
         <div className="bg-[#0b1c30] p-6 sm:p-7 text-white flex flex-col gap-3 relative border-b border-[#213145]">
@@ -138,14 +201,76 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
         {authMode === 'login' ? (
           /* Login Form */
           <div className="p-6 sm:p-8">
+            {/* ACCESO RÁPIDO PARA PRUEBAS (1 CLIC) */}
+            <div className="mb-5 p-3.5 rounded-2xl bg-[#eff4ff] border border-[#d3e4fe]">
+              <div className="flex items-center justify-between gap-2 mb-2.5">
+                <div className="flex items-center gap-1.5 text-xs font-bold text-[#0051d5]">
+                  <Sparkles className="w-4 h-4" />
+                  <span>Acceso Rápido para Pruebas (1 Clic)</span>
+                </div>
+                <span className="text-[10px] text-[#0051d5] font-semibold bg-white px-2 py-0.5 rounded-full border border-[#d3e4fe]">
+                  Modo Pruebas Activo
+                </span>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleQuickLogin('admin@eazyops.gt', '123456')}
+                  className="p-2 rounded-xl bg-white border border-[#b9d5fd] hover:border-[#0051d5] hover:bg-[#f8f9ff] text-left transition-all shadow-xs group cursor-pointer"
+                >
+                  <div className="text-[11px] font-bold text-[#0b1c30] group-hover:text-[#0051d5] flex items-center justify-between">
+                    <span>👑 SuperAdmin</span>
+                    <ArrowRight className="w-3 h-3 text-[#0051d5] opacity-0 group-hover:opacity-100 transition-opacity" />
+                  </div>
+                  <div className="text-[10px] text-[#64748b] truncate">admin@eazyops.gt</div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleQuickLogin('sofia.castillo@eazyops.gt', '123456')}
+                  className="p-2 rounded-xl bg-white border border-[#b9d5fd] hover:border-[#0051d5] hover:bg-[#f8f9ff] text-left transition-all shadow-xs group cursor-pointer"
+                >
+                  <div className="text-[11px] font-bold text-[#0b1c30] group-hover:text-[#0051d5] flex items-center justify-between">
+                    <span>🏢 Administrador</span>
+                    <ArrowRight className="w-3 h-3 text-[#0051d5] opacity-0 group-hover:opacity-100 transition-opacity" />
+                  </div>
+                  <div className="text-[10px] text-[#64748b] truncate">Licda. Sofía Castillo</div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleQuickLogin('juan.mantenimiento@eazyops.gt', '123456')}
+                  className="p-2 rounded-xl bg-white border border-[#b9d5fd] hover:border-[#0051d5] hover:bg-[#f8f9ff] text-left transition-all shadow-xs group cursor-pointer"
+                >
+                  <div className="text-[11px] font-bold text-[#0b1c30] group-hover:text-[#0051d5] flex items-center justify-between">
+                    <span>🔧 Mantenimiento</span>
+                    <ArrowRight className="w-3 h-3 text-[#0051d5] opacity-0 group-hover:opacity-100 transition-opacity" />
+                  </div>
+                  <div className="text-[10px] text-[#64748b] truncate">Juan Mantenimiento</div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleQuickLogin('carlos.mendez@eazyops.gt', '123456')}
+                  className="p-2 rounded-xl bg-white border border-[#b9d5fd] hover:border-[#0051d5] hover:bg-[#f8f9ff] text-left transition-all shadow-xs group cursor-pointer"
+                >
+                  <div className="text-[11px] font-bold text-[#0b1c30] group-hover:text-[#0051d5] flex items-center justify-between">
+                    <span>📋 Supervisor</span>
+                    <ArrowRight className="w-3 h-3 text-[#0051d5] opacity-0 group-hover:opacity-100 transition-opacity" />
+                  </div>
+                  <div className="text-[10px] text-[#64748b] truncate">Ing. Carlos Méndez</div>
+                </button>
+              </div>
+            </div>
+
             <form onSubmit={handleLoginSubmit} className="flex flex-col gap-4">
               <div>
                 <div className="flex items-center gap-2">
                   <LogIn className="w-4 h-4 text-[#0051d5]" />
-                  <h3 className="text-base font-bold text-[#0b1c30]">Iniciar Sesión</h3>
+                  <h3 className="text-base font-bold text-[#0b1c30]">Iniciar Sesión Manual</h3>
                 </div>
                 <p className="text-xs text-[#64748b] mt-1">
-                  Ingresa con tu cuenta registrada en Supabase para acceder al sistema.
+                  Ingresa con tu usuario registrado en Supabase o tu correo personal.
                 </p>
               </div>
 
@@ -153,7 +278,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                 <div className="p-3.5 rounded-xl bg-red-50 border border-red-200 text-xs text-red-700 flex items-start gap-2.5 animate-in fade-in duration-150">
                   <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
                   <div>
-                    <span className="font-semibold block">Error de autenticación</span>
+                    <span className="font-semibold block">Aviso de autenticación</span>
                     {errorMessage}
                   </div>
                 </div>
@@ -183,7 +308,6 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                     value={identifier}
                     onChange={(e) => setIdentifier(e.target.value)}
                     className="w-full h-11 pl-10 pr-3.5 rounded-xl bg-[#f8f9ff] border border-[#d3e4fe] text-xs text-[#0b1c30] focus:outline-none focus:border-[#0051d5] focus:bg-white transition-all"
-                    autoFocus
                   />
                 </div>
               </div>
@@ -201,14 +325,14 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                     }}
                     className="text-[11px] font-semibold text-[#0051d5] hover:text-[#0041ab] hover:underline cursor-pointer"
                   >
-                    ¿Olvidaste tu contraseña?
+                    ¿Olvidaste tu contraseña? (Restablecer)
                   </button>
                 </div>
                 <div className="relative">
                   <Lock className="w-4 h-4 text-[#64748b] absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                   <input
                     type={showPassword ? 'text' : 'password'}
-                    placeholder="••••••••••••"
+                    placeholder="Contraseña o clave de prueba"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     className="w-full h-11 pl-10 pr-10 rounded-xl bg-[#f8f9ff] border border-[#d3e4fe] text-xs text-[#0b1c30] focus:outline-none focus:border-[#0051d5] focus:bg-white transition-all font-mono"
@@ -227,7 +351,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
               <button
                 type="submit"
                 disabled={isLoading}
-                className="w-full h-11 rounded-xl bg-[#0051d5] hover:bg-[#0041ab] text-white text-xs font-bold transition-all flex items-center justify-center gap-2 shadow-md shadow-[#0051d5]/20 cursor-pointer disabled:opacity-60 mt-2"
+                className="w-full h-11 rounded-xl bg-[#0051d5] hover:bg-[#0041ab] text-white text-xs font-bold transition-all flex items-center justify-center gap-2 shadow-md shadow-[#0051d5]/20 cursor-pointer disabled:opacity-60 mt-1"
               >
                 {isLoading ? (
                   <>
@@ -236,7 +360,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                   </>
                 ) : (
                   <>
-                    <span>Ingresar a EazyOps</span>
+                    <span>Ingresar al Sistema</span>
                     <ArrowRight className="w-4 h-4" />
                   </>
                 )}
@@ -322,7 +446,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
             </form>
           </div>
         ) : (
-          /* Forgot Password View */
+          /* Forgot Password View with Guaranteed Direct Reset */
           <div className="p-6 sm:p-8 animate-in fade-in duration-200">
             <button
               type="button"
@@ -338,80 +462,180 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
 
             <div>
               <div className="flex items-center gap-2">
-                <KeyRound className="w-4 h-4 text-[#0051d5]" />
-                <h3 className="text-base font-bold text-[#0b1c30]">Recuperar Contraseña</h3>
+                <KeyRound className="w-5 h-5 text-[#0051d5]" />
+                <h3 className="text-base font-bold text-[#0b1c30]">Restablecer Contraseña</h3>
               </div>
               <p className="text-xs text-[#64748b] mt-1 leading-relaxed">
-                Ingresa tu correo o usuario para generar un enlace seguro o solicitar asistencia de reseteo directo.
+                Elige tu método preferido para desbloquear tu cuenta y continuar tus pruebas sin interrupciones.
               </p>
             </div>
 
-            <form onSubmit={handleForgotSubmit} className="flex flex-col gap-4 mt-4">
-              {resetMessage && (
-                <div
-                  className={`p-3.5 rounded-xl border text-xs flex items-start gap-2.5 animate-in fade-in duration-150 ${
-                    resetMessage.ok
-                      ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
-                      : 'bg-red-50 border-red-200 text-red-700'
-                  }`}
-                >
-                  {resetMessage.ok ? (
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-                  ) : (
-                    <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
-                  )}
-                  <div>
-                    <span className="font-semibold block">
-                      {resetMessage.ok ? 'Solicitud Procesada' : 'Error en la solicitud'}
-                    </span>
-                    {resetMessage.text}
+            {/* Sub-mode switcher */}
+            <div className="flex rounded-xl bg-[#eff4ff] p-1 mt-4 border border-[#d3e4fe]">
+              <button
+                type="button"
+                onClick={() => {
+                  setForgotSubMode('direct');
+                  setResetMessage(null);
+                }}
+                className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                  forgotSubMode === 'direct'
+                    ? 'bg-[#0051d5] text-white shadow-xs'
+                    : 'text-[#0051d5] hover:bg-white/50'
+                }`}
+              >
+                ⚡ Restablecimiento Inmediato (Sin Email)
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setForgotSubMode('email');
+                  setResetMessage(null);
+                }}
+                className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                  forgotSubMode === 'email'
+                    ? 'bg-[#0051d5] text-white shadow-xs'
+                    : 'text-[#0051d5] hover:bg-white/50'
+                }`}
+              >
+                ✉️ Enlace por Correo
+              </button>
+            </div>
+
+            {resetMessage && (
+              <div
+                className={`p-3.5 rounded-xl border text-xs flex items-start gap-2.5 mt-4 animate-in fade-in duration-150 ${
+                  resetMessage.ok
+                    ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                    : 'bg-red-50 border-red-200 text-red-700'
+                }`}
+              >
+                {resetMessage.ok ? (
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                ) : (
+                  <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+                )}
+                <div>
+                  <span className="font-semibold block">
+                    {resetMessage.ok ? '¡Operación Exitosa!' : 'Atención'}
+                  </span>
+                  {resetMessage.text}
+                </div>
+              </div>
+            )}
+
+            {forgotSubMode === 'direct' ? (
+              /* Direct Password Reset Form */
+              <form onSubmit={handleDirectPasswordReset} className="flex flex-col gap-3.5 mt-4">
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs font-semibold text-[#0b1c30]">Correo o Usuario a Restablecer</label>
+                  <div className="relative">
+                    <Mail className="w-4 h-4 text-[#64748b] absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                    <input
+                      type="text"
+                      required
+                      placeholder="ejemplo@eazyops.gt o usuario"
+                      value={resetIdentifier}
+                      onChange={(e) => setResetIdentifier(e.target.value)}
+                      className="w-full h-10 pl-10 pr-3.5 rounded-xl bg-[#f8f9ff] border border-[#d3e4fe] text-xs text-[#0b1c30] focus:outline-none focus:border-[#0051d5] focus:bg-white"
+                    />
                   </div>
                 </div>
-              )}
 
-              <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-semibold text-[#0b1c30]">
-                  Correo Electrónico o Usuario
-                </label>
-                <div className="relative">
-                  <Mail className="w-4 h-4 text-[#64748b] absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                  <input
-                    type="text"
-                    required
-                    placeholder="ejemplo@eazyops.gt"
-                    value={resetIdentifier}
-                    onChange={(e) => setResetIdentifier(e.target.value)}
-                    className="w-full h-11 pl-10 pr-3.5 rounded-xl bg-[#f8f9ff] border border-[#d3e4fe] text-xs text-[#0b1c30] focus:outline-none focus:border-[#0051d5] focus:bg-white transition-all"
-                    autoFocus
-                  />
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs font-semibold text-[#0b1c30]">Nueva Contraseña (Mínimo 6 caracteres)</label>
+                  <div className="relative">
+                    <Lock className="w-4 h-4 text-[#64748b] absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                    <input
+                      type="password"
+                      required
+                      placeholder="••••••••••••"
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      className="w-full h-10 pl-10 pr-3.5 rounded-xl bg-[#f8f9ff] border border-[#d3e4fe] text-xs text-[#0b1c30] focus:outline-none focus:border-[#0051d5] focus:bg-white font-mono"
+                    />
+                  </div>
                 </div>
-              </div>
 
-              <button
-                type="submit"
-                disabled={isResetting}
-                className="w-full h-11 rounded-xl bg-[#0051d5] hover:bg-[#0041ab] text-white text-xs font-bold transition-all flex items-center justify-center gap-2 shadow-md shadow-[#0051d5]/20 cursor-pointer disabled:opacity-60"
-              >
-                {isResetting ? (
-                  <>
-                    <RefreshCw className="w-4 h-4 animate-spin" />
-                    <span>Enviando solicitud a Supabase...</span>
-                  </>
-                ) : (
-                  <>
-                    <span>Enviar Enlace de Recuperación</span>
-                    <ArrowRight className="w-4 h-4" />
-                  </>
-                )}
-              </button>
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs font-semibold text-[#0b1c30]">Confirmar Nueva Contraseña</label>
+                  <div className="relative">
+                    <Lock className="w-4 h-4 text-[#64748b] absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                    <input
+                      type="password"
+                      required
+                      placeholder="••••••••••••"
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      className="w-full h-10 pl-10 pr-3.5 rounded-xl bg-[#f8f9ff] border border-[#d3e4fe] text-xs text-[#0b1c30] focus:outline-none focus:border-[#0051d5] focus:bg-white font-mono"
+                    />
+                  </div>
+                </div>
 
-              <div className="p-3 bg-[#eff4ff] rounded-xl border border-[#d3e4fe] text-[11px] text-[#0051d5] flex items-start gap-2">
-                <HelpCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                <span>
-                  Si eres usuario administrador o de mantenimiento, también puedes solicitar el cambio directo de contraseña a tu <strong>SuperAdmin</strong> desde el panel de gestión.
-                </span>
-              </div>
-            </form>
+                <button
+                  type="submit"
+                  disabled={isResetting}
+                  className="w-full h-11 rounded-xl bg-[#0051d5] hover:bg-[#0041ab] text-white text-xs font-bold transition-all flex items-center justify-center gap-2 shadow-md shadow-[#0051d5]/20 cursor-pointer disabled:opacity-60 mt-1"
+                >
+                  {isResetting ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      <span>Actualizando contraseña en Supabase...</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>Guardar Nueva Contraseña y Entrar</span>
+                      <UserCheck className="w-4 h-4" />
+                    </>
+                  )}
+                </button>
+              </form>
+            ) : (
+              /* Email Reset Link Form */
+              <form onSubmit={handleForgotEmailSubmit} className="flex flex-col gap-4 mt-4">
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-semibold text-[#0b1c30]">
+                    Correo Electrónico Registrado
+                  </label>
+                  <div className="relative">
+                    <Mail className="w-4 h-4 text-[#64748b] absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                    <input
+                      type="text"
+                      required
+                      placeholder="ejemplo@eazyops.gt"
+                      value={resetIdentifier}
+                      onChange={(e) => setResetIdentifier(e.target.value)}
+                      className="w-full h-11 pl-10 pr-3.5 rounded-xl bg-[#f8f9ff] border border-[#d3e4fe] text-xs text-[#0b1c30] focus:outline-none focus:border-[#0051d5] focus:bg-white transition-all"
+                    />
+                  </div>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={isResetting}
+                  className="w-full h-11 rounded-xl bg-[#0051d5] hover:bg-[#0041ab] text-white text-xs font-bold transition-all flex items-center justify-center gap-2 shadow-md shadow-[#0051d5]/20 cursor-pointer disabled:opacity-60"
+                >
+                  {isResetting ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      <span>Enviando solicitud a Supabase...</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>Enviar Enlace por Correo</span>
+                      <ArrowRight className="w-4 h-4" />
+                    </>
+                  )}
+                </button>
+
+                <div className="p-3 bg-[#eff4ff] rounded-xl border border-[#d3e4fe] text-[11px] text-[#0051d5] flex items-start gap-2">
+                  <HelpCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                  <span>
+                    Nota: Los envíos por correo dependen de la configuración SMTP de tu proyecto de Supabase. Si no recibes el email, usa la pestaña <strong>"Restablecimiento Inmediato"</strong> para ingresar al instante.
+                  </span>
+                </div>
+              </form>
+            )}
           </div>
         )}
 
@@ -431,4 +655,5 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     </div>
   );
 };
+
 
